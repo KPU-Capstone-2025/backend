@@ -1,109 +1,102 @@
 package com.kpu.backend.service
 
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
-import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.ec2.Ec2Client
 import software.amazon.awssdk.services.ec2.model.*
-import java.util.Base64
 
 @Service
-class Ec2Service(
-    @Value("\${aws.accessKey}") private val accessKey: String,
-    @Value("\${aws.secretKey}") private val secretKey: String,
-    @Value("\${aws.region}") private val regionString: String
-) {
-    private val ec2Client: Ec2Client by lazy {
-        Ec2Client.builder()
-            .region(Region.of(regionString))
-            .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
-            .build()
-    }
+class Ec2Service(private val ec2Client: Ec2Client) {
 
-    fun createSecureEc2(companyName: String, companyIp: String): String {
-        try {
-            // 1. 보안 그룹 생성
-            val securityGroupId = createSecurityGroup(companyName, companyIp)
-            println("✅ 보안 그룹 생성 완료: $securityGroupId")
+    fun createMonitoringTargetInstance(companyName: String): String {
+        // 1. 보안 그룹 생성 및 포트 설정
+        val securityGroupId = createSecurityGroup(companyName)
 
-            // 2. 우분투(Ubuntu)용 설치 스크립트
-            val userDataScript = """
-                #!/bin/bash
-                apt-get update -y
-                apt-get install -y docker.io
-                systemctl start docker
-                systemctl enable docker
-                usermod -aG docker ubuntu
-                
-                # 그라파나 실행 (포트 3000)
-                docker run -d -p 3000:3000 --name grafana grafana/grafana
-                
-                # Node Exporter 실행 (포트 9100)
-                docker run -d -p 9100:9100 --name node-exporter prom/node-exporter
-            """.trimIndent()
+        // 2. EC2 실행 시 자동 실행될 스크립트 (UserData)
+        // 깃허브가 Public으로 변경되었으므로 별도의 인증 없이 클론 가능합니다.
+        val userDataScript = """
+            #!/bin/bash
+            # 기본 패키지 설치
+            apt-get update -y
+            apt-get install -y openjdk-17-jdk git curl
+
+            # 스왑 메모리 2GB 설정 (t3.micro 메모리 부족 방지)
+            fallocate -l 2G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+
+            # 데모 서버 다운로드 및 실행
+            mkdir -p /home/ubuntu/demo
+            cd /home/ubuntu/demo
+            git clone https://github.com/KPU-Capstone-2025/backend_demo.git .
             
-            val userDataBase64 = Base64.getEncoder().encodeToString(userDataScript.toByteArray())
+            chmod +x gradlew
+            # 로그를 남기며 백그라운드에서 실행 (8081 포트)
+            nohup ./gradlew bootRun > /home/ubuntu/server.log 2>&1 &
+        """.trimIndent()
 
-            // 3. EC2 생성 요청
-            val runRequest = RunInstancesRequest.builder()
-                .imageId("ami-0c9c942bd7bf113a2")  // Ubuntu 22.04 LTS AMI
-                .instanceType(InstanceType.T3_MICRO)
-                .maxCount(1)
-                .minCount(1)
-                .securityGroupIds(securityGroupId)
-                .userData(userDataBase64)
-                .tagSpecifications(TagSpecification.builder()
+        val userDataEncoded = java.util.Base64.getEncoder().encodeToString(userDataScript.toByteArray())
+
+        // 3. 인스턴스 생성 요청
+        val runRequest = RunInstancesRequest.builder()
+            .imageId("ami-0c9c942bd7bf113a2") // Ubuntu 22.04 LTS (서울 리전 확인 필요)
+            .instanceType(InstanceType.T3_MICRO)
+            .maxCount(1)
+            .minCount(1)
+            .securityGroupIds(securityGroupId)
+            .userData(userDataEncoded)
+            .tagSpecifications(
+                TagSpecification.builder()
                     .resourceType(ResourceType.INSTANCE)
-                    .tags(
-                        Tag.builder().key("Name").value(companyName).build(),
-                        Tag.builder().key("Type").value("Customer-Server").build()
-                    )
-                    .build())
-                .build()
+                    .tags(Tag.builder().key("Name").value(companyName).build())
+                    .build()
+            )
+            .build()
 
-            val response = ec2Client.runInstances(runRequest)
-            val instanceId = response.instances()[0].instanceId()
-            println("✅ EC2 인스턴스 생성 완료: $instanceId")
-            return instanceId
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-            throw RuntimeException("EC2 생성 실패: ${e.message}")
-        }
+        val response = ec2Client.runInstances(runRequest)
+        return response.instances()[0].instanceId()
     }
 
-    private fun createSecurityGroup(companyName: String, allowedIp: String): String {
+    private fun createSecurityGroup(companyName: String): String {
         val groupName = "SG-$companyName-${System.currentTimeMillis()}"
         
         val createRequest = CreateSecurityGroupRequest.builder()
             .groupName(groupName)
-            .description("Security Group for $companyName")
+            .description("Security group for $companyName monitoring demo")
             .build()
-        val groupId = ec2Client.createSecurityGroup(createRequest).groupId()
 
-        val cidrIp = if (allowedIp.contains("/")) allowedIp else "$allowedIp/32"
+        val createResponse = ec2Client.createSecurityGroup(createRequest)
+        val groupId = createResponse.groupId()
 
-        val ingressRequest = AuthorizeSecurityGroupIngressRequest.builder()
+        // 인바운드 규칙 설정 (SSH, 데모웹, 모니터링 포트)
+        val authorizeRequest = AuthorizeSecurityGroupIngressRequest.builder()
             .groupId(groupId)
             .ipPermissions(
-                // 그라파나 (포트 3000)
+                // [필수] 22번 포트 (SSH 접속용)
                 IpPermission.builder()
                     .ipProtocol("tcp")
-                    .fromPort(3000).toPort(3000)
-                    .ipRanges(IpRange.builder().cidrIp(cidrIp).build())
+                    .fromPort(22).toPort(22)
+                    .ipRanges(IpRange.builder().cidrIp("0.0.0.0/0").build())
                     .build(),
-                // Node Exporter (포트 9100)
+                
+                // [필수] 8081번 포트 (데모 웹사이트 접속용)
                 IpPermission.builder()
                     .ipProtocol("tcp")
-                    .fromPort(9100).toPort(9100)
-                    .ipRanges(IpRange.builder().cidrIp(cidrIp).build())
+                    .fromPort(8081).toPort(8081)
+                    .ipRanges(IpRange.builder().cidrIp("0.0.0.0/0").build())
+                    .build(),
+
+                // [선택] 8080번 포트 (혹시 모를 메인 통신용)
+                IpPermission.builder()
+                    .ipProtocol("tcp")
+                    .fromPort(8080).toPort(8080)
+                    .ipRanges(IpRange.builder().cidrIp("0.0.0.0/0").build())
                     .build()
             )
             .build()
-        
-        ec2Client.authorizeSecurityGroupIngress(ingressRequest)
+
+        ec2Client.authorizeSecurityGroupIngress(authorizeRequest)
         return groupId
     }
 }
