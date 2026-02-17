@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
-// ▼▼▼ [핵심] 별(*) 대신 명시적으로 하나씩 임포트해서 충돌을 막습니다 ▼▼▼
 import software.amazon.awssdk.services.ec2.Ec2Client
 import software.amazon.awssdk.services.ec2.model.InstanceType
 import software.amazon.awssdk.services.ec2.model.ResourceType
@@ -41,85 +40,118 @@ class ProvisioningService(
     @Value("\${aws.sg.monitoring.id}") private lateinit var monitoringSgId: String
     @Value("\${aws.ami.id}") private lateinit var amiId: String
 
+    private val centralGatewayPrivateIp = "10.0.100.194"
+
     @Transactional
     fun provision(request: ProvisioningRequest): Company {
-        println("🚀 [${request.companyName}] 프로비저닝 시작...")
+        println("🚀 [${request.companyName}] 인프라 생성 및 회원가입 시작...")
 
         // 1. Target Group 생성
         val tgArn = createTargetGroup(request.companyId)
-        println("✅ Target Group 생성 완료")
-
-        // 2. ALB 규칙 추가 (Priority 자동 계산)
-        val nextPriority = companyRepository.findMaxPriority() + 1
+        
+        // 2. ALB 우선순위 결정 (100번부터 시작하여 충돌 방지)
+        val currentMax = companyRepository.findMaxPriority()
+        val nextPriority = if (currentMax < 100) 101 else currentMax + 1
+        
+        // 3. ALB 규칙 생성
         val ruleArn = createAlbRule(tgArn, request.companyId, nextPriority)
-        println("✅ ALB 규칙 추가 완료 (우선순위: $nextPriority)")
 
-        // 3. EC2 생성 (데모 앱 자동 실행 포함)
+        // 4. 회사 전용 EC2 인스턴스 실행 (모니터링 에이전트 자동 설치)
         val instanceId = launchInstance(request.companyId)
-        println("✅ EC2 생성 완료 ($instanceId)")
 
-        // 4. Target Group에 EC2 등록
+        // 5. Target Group에 인스턴스 등록
         registerTarget(tgArn, instanceId)
-        println("✅ 타겟 등록 완료")
 
-        // 5. 결과 저장
-        return companyRepository.save(Company(
+        // 6. DB에 모든 가입 정보와 인프라 정보를 합쳐서 저장
+        val newCompany = Company(
+            name = request.name,
+            phone = request.phone,
+            email = request.email,
+            password = request.password,
+            companyName = request.companyName,
             companyId = request.companyId,
             instanceId = instanceId,
             targetGroupArn = tgArn,
             albRuleArn = ruleArn,
             priority = nextPriority
-        ))
+        )
+
+        val saved = companyRepository.save(newCompany)
+        println("[${request.companyName}] 가입 완료 (DB ID: ${saved.id})")
+        return saved
     }
 
     private fun createTargetGroup(companyId: String): String {
-        val request = CreateTargetGroupRequest.builder()
-            .name("tg-$companyId")
-            .protocol(ProtocolEnum.HTTP)
-            .port(8081) // 데모 앱 포트
-            .vpcId(vpcId)
-            .healthCheckPath("/") // 데모 앱 메인 페이지로 헬스체크
-            .targetType(TargetTypeEnum.INSTANCE)
-            .build()
-        
-        return albClient.createTargetGroup(request).targetGroups()[0].targetGroupArn()
+        val response = albClient.createTargetGroup { 
+            it.name("tg-$companyId")
+              .protocol(ProtocolEnum.HTTP)
+              .port(8081)
+              .vpcId(vpcId)
+              .targetType(TargetTypeEnum.INSTANCE)
+        }
+        return response.targetGroups()[0].targetGroupArn()
     }
 
     private fun createAlbRule(tgArn: String, companyId: String, priority: Int): String {
-        val request = CreateRuleRequest.builder()
-            .listenerArn(listenerArn)
-            .priority(priority)
-            .conditions(
-                RuleCondition.builder()
-                    .field("http-header")
-                    .httpHeaderConfig { it.httpHeaderName("X-Company-Id").values(companyId) }
-                    .build()
-            )
-            .actions(
-                Action.builder().type(ActionTypeEnum.FORWARD).targetGroupArn(tgArn).build()
-            )
-            .build()
-
-        return albClient.createRule(request).rules()[0].ruleArn()
+        val response = albClient.createRule {
+            it.listenerArn(listenerArn)
+              .priority(priority)
+              .conditions(RuleCondition.builder()
+                  .field("http-header")
+                  .httpHeaderConfig { h -> h.httpHeaderName("X-Company-Id").values(companyId) }
+                  .build())
+              .actions(Action.builder().type(ActionTypeEnum.FORWARD).targetGroupArn(tgArn).build())
+        }
+        return response.rules()[0].ruleArn()
     }
 
     private fun launchInstance(companyId: String): String {
+        // 중앙 서버($centralGatewayPrivateIp)로 데이터를 쏘도록 UserData 수정
         val userDataScript = """
             #!/bin/bash
             apt-get update -y
             apt-get install -y openjdk-17-jdk git curl
+            curl -L -o otelcol.deb https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.90.0/otelcol-contrib_0.90.0_linux_amd64.deb
+            dpkg -i otelcol.deb
 
-            fallocate -l 2G /swapfile
-            chmod 600 /swapfile
-            mkswap /swapfile
-            swapon /swapfile
-            echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
-            
+            cat <<EOF > /etc/otelcol-contrib/config.yaml
+            receivers:
+              otlp:
+                protocols:
+                  grpc:
+                  http:
+              hostmetrics:
+                collection_interval: 10s
+                scrapers:
+                  cpu:
+                  memory:
+                  disk:
+                  network:
+            processors:
+              batch:
+              resource:
+                attributes:
+                  - key: company_id
+                    value: $companyId
+                    action: insert
+            exporters:
+              otlp:
+                endpoint: "$centralGatewayPrivateIp:4317"
+                tls:
+                  insecure: true
+            service:
+              pipelines:
+                metrics:
+                  receivers: [hostmetrics, otlp]
+                  processors: [resource, batch]
+                  exporters: [otlp]
+            EOF
+
+            systemctl restart otelcol-contrib
             mkdir -p /home/ubuntu/demo
             cd /home/ubuntu/demo
             git clone https://github.com/KPU-Capstone-2025/backend_demo.git .
             chmod +x gradlew
-            
             nohup ./gradlew bootRun > /home/ubuntu/server.log 2>&1 &
         """.trimIndent()
 
@@ -144,12 +176,12 @@ class ProvisioningService(
         val instanceId = response.instances()[0].instanceId()
 
         // [핵심 추가] 인스턴스가 'Running' 상태가 될 때까지 기다립니다.
-        println("⏳ EC2($instanceId)가 켜질 때까지 대기 중...")
+        println("EC2($instanceId)가 켜질 때까지 대기 중...")
         try {
             ec2Client.waiter().waitUntilInstanceRunning { it.instanceIds(instanceId) }
-            println("✅ EC2($instanceId) 실행 완료 (Running)")
+            println("EC2($instanceId) 실행 완료 (Running)")
         } catch (e: Exception) {
-            println("⚠️ 대기 중 오류 발생 (무시하고 진행): ${e.message}")
+            println("대기 중 오류 발생 (무시하고 진행): ${e.message}")
         }
 
         return instanceId
