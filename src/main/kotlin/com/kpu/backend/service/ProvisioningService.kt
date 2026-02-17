@@ -25,7 +25,7 @@ class AuthService(
         val encodedPassword = passwordEncoder.encode(request.password)
 
         // 3. EC2 생성 (Ec2Service 호출)
-        println("🚀 [${request.companyName}] EC2 생성 요청...")
+        println(" [${request.companyName}] EC2 생성 요청...")
         val instanceId = ec2Service.createSecureEc2(request.companyName, request.companyIp)
 
         // 4. DB 저장
