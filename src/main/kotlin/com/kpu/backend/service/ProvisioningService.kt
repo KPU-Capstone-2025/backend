@@ -1,15 +1,32 @@
-package com.kpu.monitor.service
+package com.kpu.backend.service
 
-import com.kpu.monitor.dto.ProvisioningRequest
-import com.kpu.monitor.entity.Company
-import com.kpu.monitor.repository.CompanyRepository
+import com.kpu.backend.dto.ProvisioningRequest
+import com.kpu.backend.entity.Company
+import com.kpu.backend.repository.CompanyRepository
+
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+
+// ▼▼▼ [핵심] 별(*) 대신 명시적으로 하나씩 임포트해서 충돌을 막습니다 ▼▼▼
 import software.amazon.awssdk.services.ec2.Ec2Client
-import software.amazon.awssdk.services.ec2.model.*
+import software.amazon.awssdk.services.ec2.model.InstanceType
+import software.amazon.awssdk.services.ec2.model.ResourceType
+import software.amazon.awssdk.services.ec2.model.RunInstancesRequest
+import software.amazon.awssdk.services.ec2.model.Tag
+import software.amazon.awssdk.services.ec2.model.TagSpecification
+
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.*
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.Action
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.ActionTypeEnum
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.CreateRuleRequest
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.CreateTargetGroupRequest
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.ProtocolEnum
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.RegisterTargetsRequest
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.RuleCondition
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.TargetDescription
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.TargetTypeEnum
+
 import java.util.Base64
 
 @Service
@@ -26,24 +43,24 @@ class ProvisioningService(
 
     @Transactional
     fun provision(request: ProvisioningRequest): Company {
-        println("[${request.companyName}] 프로비저닝 시작...")
+        println("🚀 [${request.companyName}] 프로비저닝 시작...")
 
         // 1. Target Group 생성
         val tgArn = createTargetGroup(request.companyId)
-        println(" Target Group 생성 완료")
+        println("✅ Target Group 생성 완료")
 
         // 2. ALB 규칙 추가 (Priority 자동 계산)
         val nextPriority = companyRepository.findMaxPriority() + 1
         val ruleArn = createAlbRule(tgArn, request.companyId, nextPriority)
-        println(" ALB 규칙 추가 완료 (우선순위: $nextPriority)")
+        println("✅ ALB 규칙 추가 완료 (우선순위: $nextPriority)")
 
         // 3. EC2 생성 (데모 앱 자동 실행 포함)
         val instanceId = launchInstance(request.companyId)
-        println("EC2 생성 완료 ($instanceId)")
+        println("✅ EC2 생성 완료 ($instanceId)")
 
         // 4. Target Group에 EC2 등록
         registerTarget(tgArn, instanceId)
-        println(" 타겟 등록 완료")
+        println("✅ 타겟 등록 완료")
 
         // 5. 결과 저장
         return companyRepository.save(Company(
@@ -87,25 +104,22 @@ class ProvisioningService(
     }
 
     private fun launchInstance(companyId: String): String {
-        // 깃허브에서 데모 앱을 받아와서 실행하는 스크립트
         val userDataScript = """
             #!/bin/bash
             apt-get update -y
             apt-get install -y openjdk-17-jdk git curl
 
-            # 스왑 메모리 설정 (t3.micro 램 부족 방지)
             fallocate -l 2G /swapfile
             chmod 600 /swapfile
             mkswap /swapfile
             swapon /swapfile
+            echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
             
-            # 데모 앱 다운로드 및 실행
             mkdir -p /home/ubuntu/demo
             cd /home/ubuntu/demo
             git clone https://github.com/KPU-Capstone-2025/backend_demo.git .
             chmod +x gradlew
             
-            # 백그라운드 실행
             nohup ./gradlew bootRun > /home/ubuntu/server.log 2>&1 &
         """.trimIndent()
 
@@ -126,13 +140,22 @@ class ProvisioningService(
             )
             .build()
 
-        return ec2Client.runInstances(runRequest).instances()[0].instanceId()
+        val response = ec2Client.runInstances(runRequest)
+        val instanceId = response.instances()[0].instanceId()
+
+        // [핵심 추가] 인스턴스가 'Running' 상태가 될 때까지 기다립니다.
+        println("⏳ EC2($instanceId)가 켜질 때까지 대기 중...")
+        try {
+            ec2Client.waiter().waitUntilInstanceRunning { it.instanceIds(instanceId) }
+            println("✅ EC2($instanceId) 실행 완료 (Running)")
+        } catch (e: Exception) {
+            println("⚠️ 대기 중 오류 발생 (무시하고 진행): ${e.message}")
+        }
+
+        return instanceId
     }
 
     private fun registerTarget(tgArn: String, instanceId: String) {
-        // EC2가 생성되고 나서 바로 등록하면 Running상태가 아니라서 실패할 수 있어서
-        // 실제로는 상태 체크 로직이 필요하지만, 여기선 바로 등록 시도
-        // AWS가 알아서 Pending 상태인 인스턴스도 받음
         val request = RegisterTargetsRequest.builder()
             .targetGroupArn(tgArn)
             .targets(TargetDescription.builder().id(instanceId).build())

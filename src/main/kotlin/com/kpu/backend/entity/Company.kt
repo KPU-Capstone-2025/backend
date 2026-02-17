@@ -1,4 +1,4 @@
-package com.kpu.monitor.entity
+package com.kpu.backend.entity
 
 import jakarta.persistence.*
 

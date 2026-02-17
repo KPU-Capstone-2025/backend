@@ -1,6 +1,6 @@
-package com.kpu.monitor.repository
+package com.kpu.backend.repository
 
-import com.kpu.monitor.entity.Company
+import com.kpu.backend.entity.Company
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 

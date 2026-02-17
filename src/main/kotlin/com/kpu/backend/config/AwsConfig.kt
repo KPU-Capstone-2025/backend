@@ -1,4 +1,4 @@
-package com.kpu.monitor.config
+package com.kpu.backend.config
 
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean

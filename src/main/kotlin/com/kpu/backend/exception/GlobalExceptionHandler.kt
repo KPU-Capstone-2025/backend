@@ -1,4 +1,4 @@
-package com.kpu.monitor.exception
+package com.kpu.backend.exception
 
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity

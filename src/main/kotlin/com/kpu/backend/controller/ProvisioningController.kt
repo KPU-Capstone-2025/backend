@@ -1,8 +1,8 @@
-package com.kpu.monitor.controller
+package com.kpu.backend.controller
 
-import com.kpu.monitor.dto.ProvisioningRequest
-import com.kpu.monitor.entity.Company
-import com.kpu.monitor.service.ProvisioningService
+import com.kpu.backend.dto.ProvisioningRequest
+import com.kpu.backend.entity.Company
+import com.kpu.backend.service.ProvisioningService
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
