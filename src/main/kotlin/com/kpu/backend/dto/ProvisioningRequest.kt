@@ -1,7 +1,6 @@
-package com.kpu.backend.dto
+package com.kpu.monitor.dto
 
-data class AuthResponse(
-    val success: Boolean,
-    val message: String,
-    val data: Map<String, Any?>? = null
+data class ProvisioningRequest(
+    val companyId: String,   // 예: "kpu-test" (헤더에 들어갈 값)
+    val companyName: String  // 예: "한국공대"
 )

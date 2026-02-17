@@ -1,9 +1,11 @@
-package com.kpu.backend.repository
+package com.kpu.monitor.repository
 
-import com.kpu.backend.domain.User
+import com.kpu.monitor.entity.Company
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
 
-interface UserRepository : JpaRepository<User, Long> {
-    fun findByEmail(email: String): User?
-    fun existsByEmail(email: String): Boolean
+interface CompanyRepository : JpaRepository<Company, Long> {
+    // 마지막 우선순위 값을 찾아서 +1 할 때 사용 (규칙 충돌 방지)
+    @Query("SELECT COALESCE(MAX(c.priority), 0) FROM Company c")
+    fun findMaxPriority(): Int
 }

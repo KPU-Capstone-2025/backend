@@ -1,32 +1,26 @@
-package com.kpu.backend.domain
+package com.kpu.monitor.entity
 
 import jakarta.persistence.*
 
 @Entity
-@Table(name = "users")
-class User(
+@Table(name = "companies")
+class Company(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
 
-    @Column(nullable = false)
-    val name: String,
-
-    @Column(nullable = false)
-    val phone: String,
-
     @Column(nullable = false, unique = true)
-    val email: String,
+    val companyId: String,
 
     @Column(nullable = false)
-    val password: String,
+    val instanceId: String,
 
     @Column(nullable = false)
-    val companyName: String,
+    val targetGroupArn: String,
 
     @Column(nullable = false)
-    val companyIp: String,
-    
-    @Column
-    var ec2InstanceId: String? = null
+    val albRuleArn: String,
+
+    @Column(nullable = false)
+    val priority: Int
 )

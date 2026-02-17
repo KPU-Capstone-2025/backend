@@ -1,33 +1,19 @@
-package com.kpu.backend.controller
+package com.kpu.monitor.controller
 
-import com.kpu.backend.dto.AuthResponse
-import com.kpu.backend.dto.LoginRequest
-import com.kpu.backend.dto.SignUpRequest
-import com.kpu.backend.service.AuthService
+import com.kpu.monitor.dto.ProvisioningRequest
+import com.kpu.monitor.entity.Company
+import com.kpu.monitor.service.ProvisioningService
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@RequestMapping("/api/auth")
-class AuthController(private val authService: AuthService) {
+@RequestMapping("/api/provision")
+class ProvisioningController(private val provisioningService: ProvisioningService) {
 
     @PostMapping("/signup")
-    fun signUp(@RequestBody request: SignUpRequest): AuthResponse {
-        val result = authService.signUp(request)
-        return AuthResponse(
-            success = true,
-            message = result
-        )
-    }
-
-    @PostMapping("/login")
-    fun login(@RequestBody request: LoginRequest): AuthResponse {
-        val result = authService.login(request)
-        return AuthResponse(
-            success = true,
-            message = result
-        )
+    fun signup(@RequestBody request: ProvisioningRequest): Company {
+        return provisioningService.provision(request)
     }
 }

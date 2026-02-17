@@ -1,4 +1,4 @@
-package com.kpu.backend.config
+package com.kpu.monitor.config
 
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
@@ -7,11 +7,11 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.ec2.Ec2Client
+import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client
 
 @Configuration
 class AwsConfig {
 
-    // application.properties에 적어둔 키값들을 가져옵니다.
     @Value("\${cloud.aws.credentials.access-key}")
     private lateinit var accessKey: String
 
@@ -21,15 +21,23 @@ class AwsConfig {
     @Value("\${cloud.aws.region.static}")
     private lateinit var region: String
 
+    private fun getProvider(): StaticCredentialsProvider {
+        return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey))
+    }
+
     @Bean
     fun ec2Client(): Ec2Client {
-        // AWS 계정 정보를 설정합니다.
-        val credentials = AwsBasicCredentials.create(accessKey, secretKey)
-        
-        // 설정된 정보로 EC2 접속 클라이언트를 생성하여 스프링 빈(Bean)으로 등록합니다.
         return Ec2Client.builder()
             .region(Region.of(region))
-            .credentialsProvider(StaticCredentialsProvider.create(credentials))
+            .credentialsProvider(getProvider())
+            .build()
+    }
+
+    @Bean
+    fun albClient(): ElasticLoadBalancingV2Client {
+        return ElasticLoadBalancingV2Client.builder()
+            .region(Region.of(region))
+            .credentialsProvider(getProvider())
             .build()
     }
 }
