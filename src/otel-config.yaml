@@ -1,0 +1,30 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317 # 중소기업들이 여기로 쏨
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: # 데이터를 모아서 한 번에 처리 (성능 향상)
+
+exporters:
+  # 1. 메트릭을 VictoriaMetrics로 보냄
+  prometheusremotewrite:
+    endpoint: "http://victoriametrics:8428/api/v1/write"
+
+  # 2. 로그를 Loki로 보냄
+  loki:
+    endpoint: "http://loki:3100/loki/api/v1/push"
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheusremotewrite]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [loki]

@@ -1,0 +1,57 @@
+version: '3'
+
+services:
+  # 1. 메트릭 저장소 (VictoriaMetrics)
+  victoriametrics:
+    container_name: victoriametrics
+    image: victoriametrics/victoria-metrics:latest
+    ports:
+      - "8428:8428" # 데이터 조회용
+      - "2003:2003"
+      - "4242:4242"
+    volumes:
+      - ./vm-data:/storage
+    command:
+      - "-storageDataPath=/storage"
+      - "-retentionPeriod=1m" # 1개월 보관
+    restart: always
+
+  # 2. 로그 저장소 (Loki)
+  loki:
+    container_name: loki
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: always
+
+  # 3. 데이터 수집 게이트웨이 (OTel Collector)
+  # 역할: 중소기업들이 쏘는 데이터를 받아서 VM과 Loki로 분배
+  otel-gateway:
+    container_name: otel-gateway
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-config.yaml"]
+    volumes:
+      - ./otel-config.yaml:/etc/otel-config.yaml # 설정 파일 연결
+    ports:
+      - "4317:4317" # OTLP gRPC (수신용)
+      - "4318:4318" # OTLP HTTP (수신용)
+    depends_on:
+      - victoriametrics
+      - loki
+    restart: always
+
+  # 4. (기존) 데이터베이스 (MySQL)
+  mysql:
+    container_name: mysql
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: your_password # 본인 비밀번호로 변경!
+      MYSQL_DATABASE: monitor_db
+      TZ: Asia/Seoul
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    restart: always
