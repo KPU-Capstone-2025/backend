@@ -1,0 +1,35 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  # 1. 메트릭을 VictoriaMetrics로 보냄 (기존 동일)
+  prometheusremotewrite:
+    endpoint: "http://victoriametrics:8428/api/v1/write"
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # 2. 로그를 Loki로 보냄 (loki 대신 otlphttp 사용)
+  # Loki는 이제 OTLP 프로토콜을 직접 지원합니다.
+  otlphttp/loki:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheusremotewrite]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki] # 수정됨

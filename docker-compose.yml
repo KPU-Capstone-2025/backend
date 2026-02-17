@@ -13,7 +13,7 @@ services:
       - ./vm-data:/storage
     command:
       - "-storageDataPath=/storage"
-      - "-retentionPeriod=1m" # 1개월 보관
+      - "-retentionPeriod=1" # 1개월 보관
     restart: always
 
   # 2. 로그 저장소 (Loki)
@@ -48,7 +48,7 @@ services:
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: your_password # 본인 비밀번호로 변경!
+      MYSQL_ROOT_PASSWORD: a!8923004
       MYSQL_DATABASE: monitor_db
       TZ: Asia/Seoul
     volumes:

@@ -41,3 +41,7 @@ out/
 
 ### 스프링 부트 ###
 src/main/resources/application.properties
+.env
+
+mysql-data/
+vm-data/
