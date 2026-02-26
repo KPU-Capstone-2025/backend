@@ -81,7 +81,6 @@ class ProvisioningService(
               .priority(priority)
               .conditions(RuleCondition.builder()
                   .field("http-header")
-                  // 팀원분 의견 반영: X-Server-Group 헤더 사용
                   .httpHeaderConfig { h -> h.httpHeaderName("X-Server-Group").values(companyId) }
                   .build())
               .actions(Action.builder().type(ActionTypeEnum.FORWARD).targetGroupArn(tgArn).build())
@@ -219,15 +218,12 @@ class ProvisioningService(
                   - loki
             EOF
 
-            # 6. 도커 실행! (다운로드 없이 바로 켜집니다)
+            # 6. 도커 실행
             docker-compose up -d
 
         """.trimIndent()
 
         val encodedUserData = Base64.getEncoder().encodeToString(userDataScript.toByteArray())
-
-        // [수정된 부분] 코틀린의 람다(Lambda) 문법을 써서 애매모호함(Ambiguity) 에러를 완벽히 해결하고, 
-        // Tag 클래스의 전체 경로를 명시해서 Import 에러를 원천 차단합니다!
         val response = ec2Client.runInstances { req ->
             req.imageId(amiId)
                 .instanceType(InstanceType.T3_MICRO)
