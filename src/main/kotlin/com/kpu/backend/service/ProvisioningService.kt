@@ -3,29 +3,13 @@ package com.kpu.backend.service
 import com.kpu.backend.dto.ProvisioningRequest
 import com.kpu.backend.entity.Company
 import com.kpu.backend.repository.CompanyRepository
-
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-
 import software.amazon.awssdk.services.ec2.Ec2Client
-import software.amazon.awssdk.services.ec2.model.InstanceType
-import software.amazon.awssdk.services.ec2.model.ResourceType
-import software.amazon.awssdk.services.ec2.model.RunInstancesRequest
-import software.amazon.awssdk.services.ec2.model.Tag
-import software.amazon.awssdk.services.ec2.model.TagSpecification
-
+import software.amazon.awssdk.services.ec2.model.*
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.Action
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.ActionTypeEnum
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.CreateRuleRequest
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.CreateTargetGroupRequest
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.ProtocolEnum
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.RegisterTargetsRequest
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.RuleCondition
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.TargetDescription
-import software.amazon.awssdk.services.elasticloadbalancingv2.model.TargetTypeEnum
-
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.*
 import java.util.Base64
 
 @Service
@@ -40,29 +24,27 @@ class ProvisioningService(
     @Value("\${aws.sg.monitoring.id}") private lateinit var monitoringSgId: String
     @Value("\${aws.ami.id}") private lateinit var amiId: String
 
-    private val centralGatewayPrivateIp = "10.0.100.194"
-
     @Transactional
     fun provision(request: ProvisioningRequest): Company {
-        println("🚀 [${request.companyName}] 인프라 생성 및 회원가입 시작...")
+        println("[${request.companyName}] 인프라 및 독립 모니터링 환경 생성 시작...")
 
-        // 1. Target Group 생성
         val tgArn = createTargetGroup(request.companyId)
-        
-        // 2. ALB 우선순위 결정 (100번부터 시작하여 충돌 방지)
-        val currentMax = companyRepository.findMaxPriority()
+        val currentMax = companyRepository.findMaxPriority() ?: 100
         val nextPriority = if (currentMax < 100) 101 else currentMax + 1
-        
-        // 3. ALB 규칙 생성
         val ruleArn = createAlbRule(tgArn, request.companyId, nextPriority)
 
-        // 4. 회사 전용 EC2 인스턴스 실행 (모니터링 에이전트 자동 설치)
+        // 1. EC2 실행 명령
         val instanceId = launchInstance(request.companyId)
 
-        // 5. Target Group에 인스턴스 등록
+        println("EC2($instanceId) 부팅 완료 대기 중...")
+        ec2Client.waiter().waitUntilInstanceRunning {
+            it.instanceIds(instanceId)
+        }
+        println("EC2 부팅 완료! 타겟 그룹에 등록합니다.")
+
+        // 3. 타겟 그룹에 등록
         registerTarget(tgArn, instanceId)
 
-        // 6. DB에 모든 가입 정보와 인프라 정보를 합쳐서 저장
         val newCompany = Company(
             name = request.name,
             phone = request.phone,
@@ -76,18 +58,19 @@ class ProvisioningService(
             priority = nextPriority
         )
 
-        val saved = companyRepository.save(newCompany)
-        println("[${request.companyName}] 가입 완료 (DB ID: ${saved.id})")
-        return saved
+        return companyRepository.save(newCompany)
     }
 
     private fun createTargetGroup(companyId: String): String {
         val response = albClient.createTargetGroup { 
-            it.name("tg-$companyId")
+            it.name("$companyId")
               .protocol(ProtocolEnum.HTTP)
-              .port(8081)
+              .port(8080)
               .vpcId(vpcId)
               .targetType(TargetTypeEnum.INSTANCE)
+              .healthCheckPath("/-/healthy")
+              .healthCheckPort("8080")
+              .matcher { it.httpCode("200,302")
         }
         return response.targetGroups()[0].targetGroupArn()
     }
@@ -98,7 +81,8 @@ class ProvisioningService(
               .priority(priority)
               .conditions(RuleCondition.builder()
                   .field("http-header")
-                  .httpHeaderConfig { h -> h.httpHeaderName("X-Company-Id").values(companyId) }
+                  // 팀원분 의견 반영: X-Server-Group 헤더 사용
+                  .httpHeaderConfig { h -> h.httpHeaderName("X-Server-Group").values(companyId) }
                   .build())
               .actions(Action.builder().type(ActionTypeEnum.FORWARD).targetGroupArn(tgArn).build())
         }
@@ -106,85 +90,162 @@ class ProvisioningService(
     }
 
     private fun launchInstance(companyId: String): String {
-        // 중앙 서버($centralGatewayPrivateIp)로 데이터를 쏘도록 UserData 수정
         val userDataScript = """
             #!/bin/bash
-            apt-get update -y
-            apt-get install -y openjdk-17-jdk git curl
-            curl -L -o otelcol.deb https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.90.0/otelcol-contrib_0.90.0_linux_amd64.deb
-            dpkg -i otelcol.deb
+            
+            # 모니터링 폴더 생성
+            mkdir -p /home/ubuntu/monitoring/config
+            cd /home/ubuntu/monitoring
 
-            cat <<EOF > /etc/otelcol-contrib/config.yaml
+            # 1. 프로메테우스 설정
+            cat <<EOF > config/prometheus.yml
+            global:
+              scrape_interval: 15s
+            scrape_configs:
+              - job_name: 'prometheus'
+                static_configs:
+                  - targets: ['localhost:9090']
+            alerting:
+              alertmanagers:
+                - static_configs:
+                    - targets: ['alertmanager:9093']
+            EOF
+
+            # 2. 로키 설정
+            cat <<EOF > config/loki-config.yaml
+            auth_enabled: false
+            server:
+              http_listen_port: 3100
+            ingester:
+              lifecycler:
+                ring:
+                  kvstore:
+                    store: inmemory
+                  replication_factor: 1
+              chunk_idle_period: 5m
+              chunk_retain_period: 30s
+            schema_config:
+              configs:
+                - from: 2020-10-24
+                  store: boltdb-shipper
+                  object_store: filesystem
+                  schema: v11
+                  index:
+                    prefix: index_
+                    period: 24h
+            storage_config:
+              boltdb_shipper:
+                active_index_directory: /tmp/loki/boltdb-shipper-active
+                cache_location: /tmp/loki/boltdb-shipper-cache
+              filesystem:
+                directory: /tmp/loki/chunks
+            EOF
+
+            # 3. 알러트매니저 설정
+            cat <<EOF > config/alertmanager.yml
+            route:
+              receiver: 'default-receiver'
             receivers:
-              otlp:
-                protocols:
-                  grpc:
-                  http:
+              - name: 'default-receiver'
+            EOF
+
+            # 4. OTel Collector 설정
+            cat <<EOF > config/otel-config.yaml
+            receivers:
               hostmetrics:
-                collection_interval: 10s
                 scrapers:
-                  cpu:
-                  memory:
-                  disk:
-                  network:
+                  cpu: {}
+                  memory: {}
             processors:
-              batch:
-              resource:
-                attributes:
+              attributes:
+                actions:
                   - key: company_id
-                    value: $companyId
+                    value: $companyId  
                     action: insert
             exporters:
-              otlp:
-                endpoint: "$centralGatewayPrivateIp:4317"
+              prometheusremotewrite:
+                endpoint: "http://prometheus:9090/api/v1/write"
+                tls:
+                  insecure: true
+              otlphttp/loki:
+                endpoint: "http://loki:3100/otlp"
                 tls:
                   insecure: true
             service:
               pipelines:
                 metrics:
-                  receivers: [hostmetrics, otlp]
-                  processors: [resource, batch]
-                  exporters: [otlp]
+                  receivers: [hostmetrics]
+                  processors: [attributes]
+                  exporters: [prometheusremotewrite]
             EOF
 
-            systemctl restart otelcol-contrib
-            mkdir -p /home/ubuntu/demo
-            cd /home/ubuntu/demo
-            git clone https://github.com/KPU-Capstone-2025/backend_demo.git .
-            chmod +x gradlew
-            nohup ./gradlew bootRun > /home/ubuntu/server.log 2>&1 &
+            # 5. 도커 컴포즈 파일 생성
+            cat <<EOF > docker-compose.yml
+            version: '3.8'
+            services:
+              prometheus:
+                image: prom/prometheus:latest
+                container_name: prometheus
+                command:
+                  - '--config.file=/etc/prometheus/prometheus.yml'
+                  - '--web.enable-remote-write-receiver'
+                volumes:
+                  - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+                ports:
+                  - "8080:9090"
+              loki:
+                image: grafana/loki:latest
+                container_name: loki
+                command: -config.file=/etc/loki/local-config.yaml
+                volumes:
+                  - ./config/loki-config.yaml:/etc/loki/local-config.yaml
+                ports:
+                  - "3100:3100"
+              alertmanager:
+                image: prom/alertmanager:latest
+                container_name: alertmanager
+                volumes:
+                  - ./config/alertmanager.yml:/etc/alertmanager/config.yml
+                ports:
+                  - "9093:9093"
+              otel-collector:
+                image: otel/opentelemetry-collector-contrib:latest
+                container_name: otel-collector
+                command: ["--config=/etc/otelcol/config.yaml"]
+                volumes:
+                  - ./config/otel-config.yaml:/etc/otelcol/config.yaml
+                depends_on:
+                  - prometheus
+                  - loki
+            EOF
+
+            # 6. 도커 실행! (다운로드 없이 바로 켜집니다)
+            docker-compose up -d
+
         """.trimIndent()
 
         val encodedUserData = Base64.getEncoder().encodeToString(userDataScript.toByteArray())
 
-        val runRequest = RunInstancesRequest.builder()
-            .imageId(amiId)
-            .instanceType(InstanceType.T3_MICRO)
-            .maxCount(1).minCount(1)
-            .subnetId(privateSubnetId)
-            .securityGroupIds(monitoringSgId)
-            .userData(encodedUserData)
-            .tagSpecifications(
-                TagSpecification.builder()
-                    .resourceType(ResourceType.INSTANCE)
-                    .tags(Tag.builder().key("Name").value("Mon-$companyId").build())
-                    .build()
-            )
-            .build()
-
-        val response = ec2Client.runInstances(runRequest)
-        val instanceId = response.instances()[0].instanceId()
-
-        // [핵심 추가] 인스턴스가 'Running' 상태가 될 때까지 기다립니다.
-        println("EC2($instanceId)가 켜질 때까지 대기 중...")
-        try {
-            ec2Client.waiter().waitUntilInstanceRunning { it.instanceIds(instanceId) }
-            println("EC2($instanceId) 실행 완료 (Running)")
-        } catch (e: Exception) {
-            println("대기 중 오류 발생 (무시하고 진행): ${e.message}")
+        // [수정된 부분] 코틀린의 람다(Lambda) 문법을 써서 애매모호함(Ambiguity) 에러를 완벽히 해결하고, 
+        // Tag 클래스의 전체 경로를 명시해서 Import 에러를 원천 차단합니다!
+        val response = ec2Client.runInstances { req ->
+            req.imageId(amiId)
+                .instanceType(InstanceType.T3_MICRO)
+                .maxCount(1)
+                .minCount(1)
+                .subnetId(privateSubnetId)
+                .securityGroupIds(monitoringSgId)
+                .userData(encodedUserData)
+                .tagSpecifications(
+                    TagSpecification.builder()
+                        .resourceType(ResourceType.INSTANCE)
+                        // 명시적 패키지 경로를 써서 Unresolved 에러 해결!
+                        .tags(software.amazon.awssdk.services.ec2.model.Tag.builder().key("Name").value("$companyId").build())
+                        .build()
+                )
         }
-
-        return instanceId
+        
+        return response.instances()[0].instanceId()
     }
 
     private fun registerTarget(tgArn: String, instanceId: String) {
@@ -192,7 +253,6 @@ class ProvisioningService(
             .targetGroupArn(tgArn)
             .targets(TargetDescription.builder().id(instanceId).build())
             .build()
-        
         albClient.registerTargets(request)
     }
 }
