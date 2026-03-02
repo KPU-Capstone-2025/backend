@@ -1,6 +1,5 @@
 package com.kpu.backend.controller
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.kpu.backend.repository.CompanyRepository
 import org.springframework.http.*
@@ -8,7 +7,10 @@ import org.springframework.web.bind.annotation.*
 import org.springframework.web.client.RestTemplate
 import org.springframework.stereotype.Service
 import org.springframework.web.util.UriComponentsBuilder
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @RestController
 @RequestMapping("/api/monitoring")
@@ -22,9 +24,8 @@ class MonitoringController(
         ResponseEntity.ok(dashboardService.getSummary(companyId))
 
     @GetMapping("/logs")
-    fun getLogs(@RequestParam companyId: String): ResponseEntity<Any> {
-        return ResponseEntity.ok(listOf(mapOf("time" to "-", "message" to "로그 기능이 비활성화되었습니다.")))
-    }
+    fun getLogs(@RequestParam companyId: String, @RequestParam(defaultValue = "100") limit: Int): ResponseEntity<Any> =
+        ResponseEntity.ok(dashboardService.fetchLogs(companyId, limit))
 
     @GetMapping("/companies")
     fun getCompanies(): ResponseEntity<Any> = ResponseEntity.ok(companyRepository.findAll())
@@ -35,7 +36,7 @@ class DashboardService(
     private val companyRepository: CompanyRepository,
     private val objectMapper: ObjectMapper = ObjectMapper()
 ) {
-    private val albDns = "http://monitor-alb-1617177792.ap-northeast-2.elb.amazonaws.com:4318"
+    private val albDns = "http://monitor-alb-1617177792.ap-northeast-2.elb.amazonaws.com:4318" // ALB 주소
     private val restTemplate = RestTemplate()
 
     fun getSummary(companyId: String): Map<String, Any> {
@@ -49,7 +50,7 @@ class DashboardService(
         val memMb = extractValue(memRaw) ?: 0.0
         
         return if (cpuRaw == null) {
-            mapOf("systemStatus" to "LOADING", "message" to "인프라 연결 중...")
+            mapOf("systemStatus" to "LOADING", "message" to "인프라(Metrics) 서버 부팅 중입니다.")
         } else {
             mapOf(
                 "systemStatus" to if (cpu > 80.0) "DANGER" else "NORMAL",
@@ -61,6 +62,47 @@ class DashboardService(
                 )
             )
         }
+    }
+
+    fun fetchLogs(companyId: String, limit: Int): List<Map<String, String>> {
+        val headers = HttpHeaders()
+        headers.set("X-Server-Group", companyId)
+        val entity = HttpEntity<Unit>(headers)
+        return try {
+            // 💡 [중요] 주소에 /loki/ 가 1번만 들어가는지 꼭 확인하세요!
+            val uri = UriComponentsBuilder.fromHttpUrl("$albDns/loki/api/v1/query_range")
+                .queryParam("query", "{company_id=\"$companyId\"}")
+                .queryParam("limit", limit)
+                .build().toUri()
+
+            val response = restTemplate.exchange(uri, HttpMethod.GET, entity, String::class.java).body
+            val logs = parseLokiLogs(response)
+            
+            if (logs.isEmpty()) {
+                listOf(mapOf("time" to "wait", "message" to "로그가 생성되기를 기다리는 중입니다..."))
+            } else {
+                logs
+            }
+        } catch (e: Exception) {
+            listOf(mapOf("time" to "wait", "message" to "인프라(Log) 서버 부팅 중입니다..."))
+        }
+    }
+
+    private fun parseLokiLogs(json: String?): List<Map<String, String>> {
+        if (json == null) return emptyList()
+        val logs = mutableListOf<Map<String, String>>()
+        try {
+            val root = objectMapper.readTree(json)
+            root.path("data").path("result").forEach { stream ->
+                stream.path("values").forEach { entry ->
+                    val nanoTs = entry.path(0).asText().toLong()
+                    val time = LocalDateTime.ofInstant(Instant.ofEpochSecond(0, nanoTs), ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+                    logs.add(mapOf("time" to time, "message" to entry.path(1).asText()))
+                }
+            }
+        } catch (e: Exception) { }
+        return logs
     }
 
     private fun fetchMetricsFromAlb(companyId: String, query: String): String? {
