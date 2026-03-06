@@ -12,17 +12,20 @@ import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalanci
 @Configuration
 class AwsConfig {
 
-    @Value("\${cloud.aws.credentials.access-key}")
+    @Value("\${cloud.aws.credentials.access-key:}")
     private lateinit var accessKey: String
 
-    @Value("\${cloud.aws.credentials.secret-key}")
+    @Value("\${cloud.aws.credentials.secret-key:}")
     private lateinit var secretKey: String
 
-    @Value("\${cloud.aws.region.static}")
+    @Value("\${cloud.aws.region.static:ap-northeast-2}")
     private lateinit var region: String
 
     private fun getProvider(): StaticCredentialsProvider {
-        return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey))
+        // 빈 값일 경우를 대비한 처리 (실제 호출 시 에러가 나겠지만, 컨텍스트 로딩은 성공함)
+        val finalAccessKey = if (accessKey.isEmpty()) "placeholder" else accessKey
+        val finalSecretKey = if (secretKey.isEmpty()) "placeholder" else secretKey
+        return StaticCredentialsProvider.create(AwsBasicCredentials.create(finalAccessKey, finalSecretKey))
     }
 
     @Bean

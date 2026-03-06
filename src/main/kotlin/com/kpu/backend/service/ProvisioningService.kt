@@ -33,7 +33,7 @@ class ProvisioningService(
         val rulePromArn = createAlbRule(tgPromArn, request.companyId, basePriority, "/api/v1/*")
 
         val tgLokiArn = createTargetGroup("-l", request.companyId, 3100, "/")
-        val ruleLokiArn = createAlbRule(tgLokiArn, request.companyId, basePriority + 1, "/loki/api/v1/*")
+        createAlbRule(tgLokiArn, request.companyId, basePriority + 1, "/loki/api/v1/*")
 
         val instanceId = launchInstance(request.companyId)
 
