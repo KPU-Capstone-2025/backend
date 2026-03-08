@@ -8,8 +8,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories
 @SpringBootApplication
 @EnableJpaRepositories(basePackages = ["com.kpu.backend.repository"]) // 리포지토리 위치 지정
 @EntityScan(basePackages = ["com.kpu.backend.entity", "com.kpu.backend.domain"]) // 엔티티 위치 지정 (entity와 domain 둘 다 스캔)
-class BackendApplication
+class ProvisioningApplication
 
 fun main(args: Array<String>) {
-    runApplication<BackendApplication>(*args)
+    runApplication<ProvisioningApplication>(*args)
 }

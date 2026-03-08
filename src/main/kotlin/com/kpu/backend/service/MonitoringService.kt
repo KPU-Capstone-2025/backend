@@ -1,118 +1,63 @@
 package com.kpu.backend.service
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.kpu.backend.entity.Company
+import com.kpu.backend.dto.ContainerStatus
+import com.kpu.backend.dto.ResourceMetrics
 import com.kpu.backend.repository.CompanyRepository
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.*
 import org.springframework.stereotype.Service
 import org.springframework.web.client.RestTemplate
 import org.springframework.web.util.UriComponentsBuilder
-import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @Service
 class MonitoringService(
-    private val companyRepository: CompanyRepository
+    private val companyRepository: CompanyRepository,
+    private val restTemplate: RestTemplate,
+    @Value("\${aws.alb.dns.name}") private val albDnsName: String
 ) {
-    private val objectMapper = ObjectMapper()
-    private val albDns = "http://monitor-alb-1617177792.ap-northeast-2.elb.amazonaws.com:4318"
-    private val restTemplate = RestTemplate()
+    private val promUrl = "http://$albDnsName:4318/api/v1/query"
 
-    fun getCompanies(): List<Company> {
-        return companyRepository.findAll()
-    }
-
-    fun getSummary(companyId: String): Map<String, Any> {
-        val cpuQuery = "sum(rate(system_cpu_time_seconds_total{company_id=\"$companyId\", state!=\"idle\"}[2m])) * 100"
-        val memQuery = "sum(system_memory_usage_bytes{company_id=\"$companyId\", state=\"used\"}) / 1024 / 1024"
-
-        val cpuRaw = fetchMetricsFromAlb(companyId, cpuQuery)
-        val memRaw = fetchMetricsFromAlb(companyId, memQuery)
-
-        val cpu = extractValue(cpuRaw) ?: 0.0
-        val memMb = extractValue(memRaw) ?: 0.0
-
-        return if (cpuRaw == null) {
-            mapOf("systemStatus" to "LOADING", "message" to "인프라(Metrics) 서버 부팅 중입니다.")
-        } else {
-            mapOf(
-                "systemStatus" to if (cpu > 80.0) "DANGER" else "NORMAL",
-                "lastUpdate" to LocalDateTime.now().toString(),
-                "serverKpi" to mapOf(
-                    "cpuUsage" to (Math.round(cpu * 100.0) / 100.0),
-                    "memoryUsage" to (Math.round((memMb / 2048.0 * 100) * 100.0) / 100.0),
-                    "networkTraffic" to "${Math.round(memMb)} MB 사용 중"
-                )
+    fun getContainerList(companyId: Long): List<ContainerStatus> {
+        val company = companyRepository.findById(companyId).orElseThrow()
+        val query = "up{company_id='${company.monitoringId}'}"
+        val results = queryPrometheus(query, company.monitoringId)
+        
+        return results.map {
+            val metric = it["metric"] as Map<*, *>
+            val value = (it["value"] as List<*>)[1].toString()
+            ContainerStatus(
+                containerId = metric["container_name"]?.toString() ?: "unknown",
+                status = if (value == "1") "RUNNING" else "DOWN"
             )
         }
     }
 
-    fun fetchLogs(companyId: String, limit: Int): List<Map<String, String>> {
-        val headers = HttpHeaders()
-        headers.set("X-Server-Group", companyId)
-        val entity = HttpEntity<Unit>(headers)
-        return try {
-            val uri = UriComponentsBuilder.fromHttpUrl("$albDns/loki/api/v1/query_range")
-                .queryParam("query", "{company_id=\"$companyId\"}")
-                .queryParam("limit", limit)
-                .build().toUri()
-
-            val response = restTemplate.exchange(uri, HttpMethod.GET, entity, String::class.java).body
-            val logs = parseLokiLogs(response)
-
-            if (logs.isEmpty()) {
-                listOf(mapOf("time" to "wait", "message" to "로그가 생성되기를 기다리는 중입니다..."))
-            } else {
-                logs
-            }
-        } catch (e: Exception) {
-            listOf(mapOf("time" to "wait", "message" to "인프라(Log) 서버 부팅 중입니다..."))
-        }
+    fun getHostMetrics(companyId: Long): ResourceMetrics {
+        val company = companyRepository.findById(companyId).orElseThrow()
+        val cpu = querySingleValue("system_cpu_usage{company_id='${company.monitoringId}'}", company.monitoringId)
+        val mem = querySingleValue("system_memory_usage{company_id='${company.monitoringId}'}", company.monitoringId)
+        return ResourceMetrics("STABLE", cpu ?: 0.0, mem ?: 0.0, 0.0, 0.0)
     }
 
-    private fun parseLokiLogs(json: String?): List<Map<String, String>> {
-        if (json == null) return emptyList()
-        val logs = mutableListOf<Map<String, String>>()
-        try {
-            val root = objectMapper.readTree(json)
-            root.path("data").path("result").forEach { stream ->
-                stream.path("values").forEach { entry ->
-                    val nanoTs = entry.path(0).asText().toLong()
-                    val time = LocalDateTime.ofInstant(Instant.ofEpochSecond(0, nanoTs), ZoneId.systemDefault())
-                        .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
-                    logs.add(mapOf("time" to time, "message" to entry.path(1).asText()))
-                }
-            }
-        } catch (e: Exception) {
-        }
-        return logs
+    fun getContainerMetrics(companyId: Long, containerId: String, period: String): ResourceMetrics {
+        val company = companyRepository.findById(companyId).orElseThrow()
+        val cpu = querySingleValue("avg_over_time(container_cpu_usage{company_id='${company.monitoringId}', container_name='$containerId'}[$period])", company.monitoringId)
+        val mem = querySingleValue("avg_over_time(container_memory_usage{company_id='${company.monitoringId}', container_name='$containerId'}[$period])", company.monitoringId)
+        return ResourceMetrics("RUNNING", cpu ?: 0.0, mem ?: 0.0, 0.0, 0.0)
     }
 
-    private fun fetchMetricsFromAlb(companyId: String, query: String): String? {
-        val headers = HttpHeaders()
-        headers.set("X-Server-Group", companyId)
-        val entity = HttpEntity<Unit>(headers)
-        return try {
-            val uri = UriComponentsBuilder.fromHttpUrl("$albDns/api/v1/query")
-                .queryParam("query", query)
-                .build().toUri()
-            val response = restTemplate.exchange(uri, HttpMethod.GET, entity, String::class.java).body
-            if (response != null && !response.contains("\"result\":[]")) response else null
-        } catch (e: Exception) {
-            null
-        }
+    private fun querySingleValue(query: String, monitoringId: String): Double? {
+        val res = queryPrometheus(query, monitoringId)
+        return (res.firstOrNull()?.get("value") as? List<*>)?.get(1)?.toString()?.toDoubleOrNull()
     }
 
-    private fun extractValue(json: String?): Double? {
-        if (json == null) return null
+    private fun queryPrometheus(query: String, monitoringId: String): List<Map<String, Any>> {
+        val headers = HttpHeaders().apply { set("X-Server-Group", monitoringId) }
+        val uri = UriComponentsBuilder.fromHttpUrl(promUrl).queryParam("query", query).build().toUri()
         return try {
-            val root = objectMapper.readTree(json)
-            val result = root.path("data").path("result")
-            if (result.isArray && result.size() > 0) result.get(0).path("value").get(1).asText().toDouble() else null
-        } catch (e: Exception) {
-            null
-        }
+            val response = restTemplate.exchange(uri, HttpMethod.GET, HttpEntity<Unit>(headers), Map::class.java)
+            val data = response.body?.get("data") as? Map<*, *>
+            data?.get("result") as? List<Map<String, Any>> ?: emptyList()
+        } catch (e: Exception) { emptyList() }
     }
 }
