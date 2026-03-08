@@ -69,7 +69,6 @@ class DashboardService(
         headers.set("X-Server-Group", companyId)
         val entity = HttpEntity<Unit>(headers)
         return try {
-            // 💡 [중요] 주소에 /loki/ 가 1번만 들어가는지 꼭 확인하세요!
             val uri = UriComponentsBuilder.fromHttpUrl("$albDns/loki/api/v1/query_range")
                 .queryParam("query", "{company_id=\"$companyId\"}")
                 .queryParam("limit", limit)

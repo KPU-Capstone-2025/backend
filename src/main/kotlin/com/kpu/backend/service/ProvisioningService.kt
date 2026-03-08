@@ -63,31 +63,40 @@ class ProvisioningService(
             mkdir -p /root/monitoring
             cd /root/monitoring
 
-            cat <<'EOF' > generate_logs.sh
+
             #!/bin/sh
             while true; do
               D=${'$'}(date +%H:%M:%S)
-              NANO_TIME=${'$'}(date +%s)000000000
+              NANO_TIME="${'$'}(date +%s)000000000"
               
               cat <<INNER_EOF > /tmp/log.json
             {
-              "streams": [
+              "resourceLogs": [
                 {
-                  "stream": {
-                    "company_id": "${companyId}",
-                    "service_name": "demo-app",
-                    "job": "log-generator"
+                  "resource": {
+                    "attributes": [
+                      { "key": "service.name", "value": { "stringValue": "demo-app" } },
+                      { "key": "company_id", "value": { "stringValue": "${companyId}" } }
+                    ]
                   },
-                  "values": [
-                    [ "${'$'}{NANO_TIME}", "[INFO] 데모 서버 실시간 로그 정상 기록 중입니다... ${'$'}D" ]
+                  "scopeLogs": [
+                    {
+                      "logRecords": [
+                        {
+                          "timeUnixNano": "${'$'}{NANO_TIME}",
+                          "body": {
+                            "stringValue": "[INFO] 데모 서버 실시간 로그 정상 기록 중입니다... ${'$'}D"
+                          }
+                        }
+                      ]
+                    }
                   ]
                 }
               ]
             }
             INNER_EOF
               
-              # OTel(4318) 대신 Loki(3100)의 Push API로 다이렉트 전송
-              wget -qO- --header="Content-Type: application/json" --post-file=/tmp/log.json http://loki:3100/loki/api/v1/push
+              wget -qO- --header="Content-Type: application/json" --post-file=/tmp/log.json http://otel-collector:4318/v1/logs
               sleep 5
             done
             EOF
