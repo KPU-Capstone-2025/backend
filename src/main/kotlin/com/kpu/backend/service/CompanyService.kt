@@ -96,7 +96,6 @@ class CompanyService(
             mkdir -p /opt/monitoring
             cd /opt/monitoring
             
-            # 🌟 OTel 설정 복구: 에이전트가 보내는 복잡한 컨테이너 라벨들을 전부 수용하도록 설정!
             cat << 'EOF' > otel-config.yaml
             receivers:
               otlp:
@@ -112,7 +111,6 @@ class CompanyService(
             exporters:
               prometheus:
                 endpoint: "0.0.0.0:8889"
-                # 🌟 핵심: 컨테이너 이름표(Resource Attributes)를 프로메테우스 라벨로 변환하여 살려냄!
                 resource_to_telemetry_conversion:
                   enabled: true
             service:
@@ -130,7 +128,6 @@ class CompanyService(
               - job_name: 'otel-collector'
                 static_configs:
                   - targets: ['otel-collector:8889']
-                # 🌟 추가: 수집된 라벨 이름 충돌을 방지 (명확하게 저장)
                 honor_labels: true
             EOF
             

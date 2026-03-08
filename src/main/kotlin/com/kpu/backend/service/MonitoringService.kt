@@ -19,47 +19,49 @@ class MonitoringService(
 
     fun getContainerList(companyId: Long): List<ContainerStatus> {
         val company = companyRepository.findById(companyId).orElseThrow()
-        val query = "up"
-        val results = queryPrometheus(query, company.monitoringId)
         
-        return results.map {
+        val query = "container_memory_usage_bytes"
+        val results = queryPrometheus(query, company.monitoringId)
+
+        return results.mapNotNull {
             val metric = it["metric"] as Map<*, *>
-            val value = (it["value"] as List<*>)[1].toString()
-            ContainerStatus(
-                containerId = metric["container_name"]?.toString() ?: metric["job"]?.toString() ?: "unknown",
-                status = if (value == "1") "RUNNING" else "DOWN"
-            )
-        }
+            val containerName = metric["container_name"]?.toString()
+            
+            if (!containerName.isNullOrBlank()) {
+                ContainerStatus(containerId = containerName, status = "RUNNING")
+            } else null
+        }.distinctBy { it.containerId } 
     }
 
     fun getHostMetrics(companyId: Long): ResourceMetrics {
         val company = companyRepository.findById(companyId).orElseThrow()
         val monId = company.monitoringId
         
-        //CPU 쿼리: rate() 함수를 써서 최근 1분간의 변화율(사용률)을 계산하고 100을 곱해 %로 만듦
         val cpuQuery = "rate(system_cpu_usage[1m]) * 100" 
         val cpu = querySingleValue(cpuQuery, monId) ?: 0.0
         val mem = querySingleValue("system_memory_usage", monId) ?: 0.0
         val disk = querySingleValue("system_disk_usage", monId) ?: 0.0
-        
         val rx = querySingleValue("system_network_rx_bytes", monId) ?: 0.0
         val tx = querySingleValue("system_network_tx_bytes", monId) ?: 0.0
-        val networkTraffic = rx + tx
         
-        return ResourceMetrics("STABLE", cpu, mem, disk, networkTraffic)
+        return ResourceMetrics("STABLE", cpu, mem, disk, rx + tx)
     }
 
     fun getContainerMetrics(companyId: Long, containerId: String, period: String): ResourceMetrics {
         val company = companyRepository.findById(companyId).orElseThrow()
         val monId = company.monitoringId
         
-        val cpuQuery = "avg_over_time(container_cpu_usage_ns{container_name='$containerId'}[$period])"
-        val memQuery = "avg_over_time(container_memory_usage_bytes{container_name='$containerId'}[$period])"
+        val cpuQuery = "rate(container_cpu_usage_ns{container_name='$containerId'}[1m]) / 10000000"
+        val memQuery = "container_memory_usage_bytes{container_name='$containerId'}"
+        val rxQuery = "rate(container_network_rx_bytes{container_name='$containerId'}[1m])"
+        val txQuery = "rate(container_network_tx_bytes{container_name='$containerId'}[1m])"
         
         val cpu = querySingleValue(cpuQuery, monId) ?: 0.0
         val mem = querySingleValue(memQuery, monId) ?: 0.0
+        val rx = querySingleValue(rxQuery, monId) ?: 0.0
+        val tx = querySingleValue(txQuery, monId) ?: 0.0
         
-        return ResourceMetrics("RUNNING", cpu, mem, 0.0, 0.0)
+        return ResourceMetrics("RUNNING", cpu, mem, 0.0, rx + tx)
     }
 
     private fun querySingleValue(query: String, monitoringId: String): Double? {
