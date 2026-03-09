@@ -12,9 +12,3 @@ data class ResourceMetrics(
     val diskUsage: Double,
     val networkTraffic: Double
 )
-
-data class LogEntry(
-    val timestamp: String,
-    val message: String,
-    val labels: Map<String, String>
-)
