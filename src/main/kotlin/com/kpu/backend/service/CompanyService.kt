@@ -41,17 +41,17 @@ class CompanyService(
         val tgArnProm = createTargetGroup(tgNameProm, 9090, "/-/healthy")
         createAlbRule(tgArnProm, monitoringId, basePriority + 2, "/api/*")
 
-        val instanceId = launchInstance(monitoringId)
+        val instanceId = launchInstance(req.name)
         waitForInstanceRunning(instanceId)
 
         registerTarget(tgArnOtel, instanceId, 4318)
         registerTarget(tgArnProm, instanceId, 9090)
 
-        return saveCompany(req, monitoringId, instanceId)
+        return saveCompany(req, monitoringId)
     }
 
     @Transactional
-    fun saveCompany(req: CompanyRegisterRequest, monitoringId: String, instanceId: String): Company {
+    fun saveCompany(req: CompanyRegisterRequest, monitoringId: String): Company {
         val nextId = companyRepository.findMaxId() + 1
         val company = Company(
             name = req.name, email = req.email, password = req.password,
@@ -172,10 +172,10 @@ class CompanyService(
         return Base64.getEncoder().encodeToString(script.toByteArray())
     }
 
-    private fun launchInstance(monitoringId: String): String {
+    private fun launchInstance(companyName: String): String {
         val tagSpec = TagSpecification.builder()
             .resourceType(ResourceType.INSTANCE)
-            .tags(Tag.builder().key("Name").value(monitoringId).build()).build()
+        .tags(Tag.builder().key("Name").value(companyName).build()).build()
 
         val response = ec2Client.runInstances { req ->
             req.imageId(amiId).instanceType(InstanceType.T3_SMALL).maxCount(1).minCount(1)
