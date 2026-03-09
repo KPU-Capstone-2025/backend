@@ -14,7 +14,8 @@ data class LoginRequest(
 )
 
 data class LoginResponse(
-    val id: Long
+    val id: Long,
+    val name: String
 )
 
 data class AgentDestination(

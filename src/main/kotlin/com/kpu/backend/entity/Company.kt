@@ -6,8 +6,8 @@ import java.time.LocalDateTime
 @Entity
 @Table(name = "companies")
 class Company(
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
-    val id: Long = 0,
+    @Id
+    var id: Long = 0,
     val name: String,
     @Column(unique = true) val email: String,
     val password: String,

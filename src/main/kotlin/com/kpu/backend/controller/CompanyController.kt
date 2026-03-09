@@ -25,8 +25,8 @@ class CompanyController(private val companyService: CompanyService) {
 
     @PostMapping("/company/login")
     fun login(@RequestBody req: LoginRequest): ResponseEntity<Any> {
-        val id = companyService.login(req) ?: return ResponseEntity.status(401).build()
-        return ResponseEntity.ok(LoginResponse(id))
+        val (id, name) = companyService.login(req) ?: return ResponseEntity.status(401).build()
+        return ResponseEntity.ok(LoginResponse(id, name))
     }
 
     @GetMapping("/agent/{companyId}")

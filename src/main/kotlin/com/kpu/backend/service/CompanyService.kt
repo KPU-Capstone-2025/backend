@@ -52,17 +52,30 @@ class CompanyService(
 
     @Transactional
     fun saveCompany(req: CompanyRegisterRequest, monitoringId: String, instanceId: String): Company {
+        val nextId = companyRepository.findMaxId() + 1
         val company = Company(
             name = req.name, email = req.email, password = req.password,
             phone = req.phone, ip = req.ip, monitoringId = monitoringId,
             collectorUrl = albDnsName
         )
+        company.id = nextId
         return companyRepository.save(company)
     }
+    
+    @Transactional
+    fun deleteCompany(companyId: Long) {
+        companyRepository.deleteById(companyId)
+        // 삭제된 ID 이후의 모든 ID를 1씩 감소
+        val companies = companyRepository.findAllByIdGreaterThan(companyId)
+        companies.forEach { company ->
+            company.id = company.id - 1
+            companyRepository.save(company)
+        }
+    }
 
-    fun login(req: LoginRequest): Long? {
+    fun login(req: LoginRequest): Pair<Long, String>? {
         val company = companyRepository.findByEmail(req.email) ?: return null
-        return if (company.password == req.password) company.id else null
+        return if (company.password == req.password) Pair(company.id, company.name) else null
     }
 
     fun getAgentInfo(companyId: Long): AgentDestination {
