@@ -28,24 +28,29 @@ class CompanyService(
 
     fun registerAndProvision(req: CompanyRegisterRequest): Company {
         val monitoringId = "mon-" + UUID.randomUUID().toString().take(8)
-        val safeIp = req.ip.replace(".", "-")
+        val safeName = req.name.replace(Regex("[^a-zA-Z0-9-]"), "-").lowercase()
         
         val companyCount = companyRepository.count().toInt()
         val basePriority = 100 + (companyCount * 10) 
 
-        val tgNameOtel = "$safeIp-o-${monitoringId.takeLast(4)}".take(32)
+        val tgNameOtel = "$safeName-otel".take(32)
         val tgArnOtel = createTargetGroup(tgNameOtel, 4318, "/v1/metrics") 
         createAlbRule(tgArnOtel, monitoringId, basePriority + 1, "/v1/*")
 
-        val tgNameProm = "$safeIp-p-${monitoringId.takeLast(4)}".take(32)
+        val tgNameProm = "$safeName-prom".take(32)
         val tgArnProm = createTargetGroup(tgNameProm, 9090, "/-/healthy")
         createAlbRule(tgArnProm, monitoringId, basePriority + 2, "/api/*")
+
+        val tgNameLoki = "$safeName-loki".take(32)
+        val tgArnLoki = createTargetGroup(tgNameLoki, 3100, "/ready")
+        createAlbRule(tgArnLoki, monitoringId, basePriority + 3, "/loki/*")
 
         val instanceId = launchInstance(req.name)
         waitForInstanceRunning(instanceId)
 
         registerTarget(tgArnOtel, instanceId, 4318)
         registerTarget(tgArnProm, instanceId, 9090)
+        registerTarget(tgArnLoki, instanceId, 3100)
 
         return saveCompany(req, monitoringId)
     }
@@ -126,12 +131,18 @@ class CompanyService(
                 endpoint: "0.0.0.0:8889"
                 resource_to_telemetry_conversion:
                   enabled: true
+              loki:
+                endpoint: "http://loki:3100/loki/api/v1/push"
             service:
               pipelines:
                 metrics:
                   receivers: [otlp]
                   processors: [batch]
                   exporters: [prometheus]
+                logs:
+                  receivers: [otlp]
+                  processors: [batch]
+                  exporters: [loki]
             EOF
             
             cat << 'EOF' > prometheus.yml
@@ -142,6 +153,23 @@ class CompanyService(
                 static_configs:
                   - targets: ['otel-collector:8889']
                 honor_labels: true
+            EOF
+            
+            cat << 'EOF' > promtail-config.yaml
+            server:
+              http_listen_port: 9080
+            positions:
+              filename: /tmp/positions.yaml
+            clients:
+              - url: http://loki:3100/loki/api/v1/push
+            scrape_configs:
+              - job_name: metric-agent
+                static_configs:
+                  - targets:
+                      - localhost
+                    labels:
+                      job: metric-agent
+                      __path__: /var/log/metric.log
             EOF
             
             cat << 'EOF' > docker-compose.yml
@@ -164,6 +192,19 @@ class CompanyService(
                   - "4317:4317"
                   - "4318:4318"
                   - "8889:8889"
+              loki:
+                image: grafana/loki:latest
+                restart: always
+                ports:
+                  - "3100:3100"
+                command: -config.file=/etc/loki/local-config.yaml
+              promtail:
+                image: grafana/promtail:latest
+                restart: always
+                volumes:
+                  - ./promtail-config.yaml:/etc/promtail/config.yaml
+                  - /var/log:/var/log
+                command: -config.file=/etc/promtail/config.yaml
             EOF
             
             chmod 644 /opt/monitoring/*

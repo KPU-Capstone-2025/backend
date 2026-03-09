@@ -2,6 +2,7 @@ package com.kpu.backend.controller
 
 import com.kpu.backend.common.ApiResponse
 import com.kpu.backend.dto.ContainerStatus
+import com.kpu.backend.dto.LogEntry
 import com.kpu.backend.dto.ResourceMetrics
 import com.kpu.backend.service.MonitoringService
 import org.springframework.web.bind.annotation.*
@@ -16,12 +17,15 @@ class DashboardController(private val monitoringService: MonitoringService) {
      * GET /api/dashboard/container/{companyId}
      */
     @GetMapping("/container/{companyId}")
-    fun list(@PathVariable companyId: Long): ApiResponse<ContainerStatus> {
+    fun list(
+        @PathVariable companyId: Long,
+        @RequestParam(defaultValue = "120") freshWindowSec: Int
+    ): ApiResponse<ContainerStatus> {
         return ApiResponse(
             isSuccess = true,
             code = "dashboard200-1",
             message = "성공적으로 컨테이너 목록을 조회했습니다.",
-            containers = monitoringService.getContainerList(companyId)
+            containers = monitoringService.getContainerList(companyId, freshWindowSec)
         )
     }
 
@@ -54,6 +58,25 @@ class DashboardController(private val monitoringService: MonitoringService) {
             code = "dashboard200-1",
             message = "성공적으로 컨테이너 리소스를 상세 조회했습니다.",
             results = monitoringService.getContainerMetrics(companyId, containerId, period)
+        )
+    }
+
+    /**
+     * Loki 로그 조회 (데모용)
+     * GET /api/dashboard/{companyId}/logs
+     */
+    @GetMapping("/{companyId}/logs")
+    fun logs(
+        @PathVariable companyId: Long,
+        @RequestParam(defaultValue = "{job=\"metric-agent\"}") query: String,
+        @RequestParam(defaultValue = "100") limit: Int,
+        @RequestParam(defaultValue = "false") demo: Boolean
+    ): ApiResponse<LogEntry> {
+        return ApiResponse(
+            isSuccess = true,
+            code = "dashboard200-1",
+            message = "성공적으로 로그를 조회했습니다.",
+            containers = monitoringService.getLogs(companyId, query, limit, demo)
         )
     }
 }
