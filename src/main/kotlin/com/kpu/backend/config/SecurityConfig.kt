@@ -16,8 +16,8 @@ class SecurityConfig {
     @Bean
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
         http
-            .csrf { it.disable() } // CSRF 비활성화
-            .cors { it.configurationSource(corsConfigurationSource()) } // CORS 설정 적용
+            .csrf { it.disable() }
+            .cors { it.configurationSource(corsConfigurationSource()) }
             .authorizeHttpRequests { auth ->
                 auth.requestMatchers("/api/**").permitAll()
                 auth.anyRequest().authenticated()

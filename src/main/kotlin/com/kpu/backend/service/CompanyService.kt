@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional
 import software.amazon.awssdk.services.ec2.Ec2Client
 import software.amazon.awssdk.services.ec2.model.*
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client
+import software.amazon.awssdk.services.elasticloadbalancingv2.model.PriorityInUseException
 import software.amazon.awssdk.services.elasticloadbalancingv2.model.ProtocolEnum
 import software.amazon.awssdk.services.elasticloadbalancingv2.model.TargetTypeEnum
 import java.util.*
@@ -29,21 +30,18 @@ class CompanyService(
     fun registerAndProvision(req: CompanyRegisterRequest): Company {
         val monitoringId = "mon-" + UUID.randomUUID().toString().take(8)
         val safeName = req.name.replace(Regex("[^a-zA-Z0-9-]"), "-").lowercase()
-        
-        val companyCount = companyRepository.count().toInt()
-        val basePriority = 100 + (companyCount * 10) 
 
         val tgNameOtel = "$safeName-otel".take(32)
-        val tgArnOtel = createTargetGroup(tgNameOtel, 4318, "/v1/metrics") 
-        createAlbRule(tgArnOtel, monitoringId, basePriority + 1, "/v1/*")
+        val tgArnOtel = createTargetGroup(tgNameOtel, 4318, "/v1/metrics")
+        createAlbRule(tgArnOtel, monitoringId, "/v1/*")
 
         val tgNameProm = "$safeName-prom".take(32)
         val tgArnProm = createTargetGroup(tgNameProm, 9090, "/-/healthy")
-        createAlbRule(tgArnProm, monitoringId, basePriority + 2, "/api/*")
+        createAlbRule(tgArnProm, monitoringId, "/api/*")
 
         val tgNameLoki = "$safeName-loki".take(32)
         val tgArnLoki = createTargetGroup(tgNameLoki, 3100, "/ready")
-        createAlbRule(tgArnLoki, monitoringId, basePriority + 3, "/loki/*")
+        createAlbRule(tgArnLoki, monitoringId, "/loki/*")
 
         val instanceId = launchInstance(req.name)
         waitForInstanceRunning(instanceId)
@@ -66,11 +64,10 @@ class CompanyService(
         company.id = nextId
         return companyRepository.save(company)
     }
-    
+
     @Transactional
     fun deleteCompany(companyId: Long) {
         companyRepository.deleteById(companyId)
-        // 삭제된 ID 이후의 모든 ID를 1씩 감소
         val companies = companyRepository.findAllByIdGreaterThan(companyId)
         companies.forEach { company ->
             company.id = company.id - 1
@@ -97,15 +94,36 @@ class CompanyService(
         return response.targetGroups()[0].targetGroupArn()
     }
 
-    private fun createAlbRule(tgArn: String, monitoringId: String, priority: Int, pathPattern: String) {
-        albClient.createRule { req ->
-            req.listenerArn(listenerArn).priority(priority)
-                .conditions(
-                    { c -> c.field("http-header").httpHeaderConfig { h -> h.httpHeaderName("X-Server-Group").values(monitoringId) } },
-                    { c -> c.field("path-pattern").pathPatternConfig { p -> p.values(pathPattern) } }
-                )
-                .actions({ a -> a.type("forward").targetGroupArn(tgArn) })
+    private fun createAlbRule(tgArn: String, monitoringId: String, pathPattern: String) {
+        var searchStart = 100
+        repeat(20) {
+            val priority = findNextAvailablePriority(searchStart)
+            try {
+                albClient.createRule { req ->
+                    req.listenerArn(listenerArn).priority(priority)
+                        .conditions(
+                            { c -> c.field("http-header").httpHeaderConfig { h -> h.httpHeaderName("X-Server-Group").values(monitoringId) } },
+                            { c -> c.field("path-pattern").pathPatternConfig { p -> p.values(pathPattern) } }
+                        )
+                        .actions({ a -> a.type("forward").targetGroupArn(tgArn) })
+                }
+                return
+            } catch (_: PriorityInUseException) {
+                searchStart = priority + 1
+            }
         }
+        throw IllegalStateException("Failed to allocate unique ALB rule priority after multiple retries")
+    }
+
+    private fun findNextAvailablePriority(startFrom: Int): Int {
+        val usedPriorities = albClient.describeRules { it.listenerArn(listenerArn) }
+            .rules().mapNotNull { rule -> rule.priority().toIntOrNull() }.toSet()
+
+        var candidate = startFrom
+        while (candidate in usedPriorities) {
+            candidate++
+        }
+        return candidate
     }
 
     private fun getUserDataScript(): String {
@@ -113,7 +131,7 @@ class CompanyService(
             #!/bin/bash
             mkdir -p /opt/monitoring
             cd /opt/monitoring
-            
+
             cat << 'EOF' > otel-config.yaml
             receivers:
               otlp:
@@ -124,87 +142,80 @@ class CompanyService(
                     endpoint: "0.0.0.0:4318"
                     cors:
                       allowed_origins: ["*"]
+
             processors:
-              batch: {}
+              batch:
+                send_batch_size: 50
+                timeout: 2s
+
             exporters:
+              debug:
+                verbosity: detailed
               prometheus:
                 endpoint: "0.0.0.0:8889"
                 resource_to_telemetry_conversion:
                   enabled: true
               loki:
                 endpoint: "http://loki:3100/loki/api/v1/push"
+
             service:
               pipelines:
                 metrics:
                   receivers: [otlp]
                   processors: [batch]
-                  exporters: [prometheus]
+                  exporters: [prometheus, debug]
                 logs:
                   receivers: [otlp]
                   processors: [batch]
-                  exporters: [loki]
+                  exporters: [loki, debug]
             EOF
             
             cat << 'EOF' > prometheus.yml
             global:
               scrape_interval: 5s
+
             scrape_configs:
-              - job_name: 'otel-collector'
+              - job_name: "otel-collector"
                 static_configs:
-                  - targets: ['otel-collector:8889']
+                  - targets: ["otel-collector:8889"]
                 honor_labels: true
             EOF
             
-            cat << 'EOF' > promtail-config.yaml
-            server:
-              http_listen_port: 9080
-            positions:
-              filename: /tmp/positions.yaml
-            clients:
-              - url: http://loki:3100/loki/api/v1/push
-            scrape_configs:
-              - job_name: metric-agent
-                static_configs:
-                  - targets:
-                      - localhost
-                    labels:
-                      job: metric-agent
-                      __path__: /var/log/metric.log
-            EOF
-            
             cat << 'EOF' > docker-compose.yml
-            version: '3.8'
+            version: "3.9"
+
             services:
-              prometheus:
-                image: prom/prometheus:latest
-                restart: always
+              loki:
+                image: grafana/loki:2.9.4
+                container_name: loki
+                ports:
+                  - "3100:3100"
                 volumes:
-                  - ./prometheus.yml:/etc/prometheus/prometheus.yml
+                  - loki-data:/loki
+
+              prometheus:
+                image: prom/prometheus:v2.50.0
+                container_name: prometheus
                 ports:
                   - "9090:9090"
+                volumes:
+                  - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
               otel-collector:
-                image: otel/opentelemetry-collector-contrib:latest
-                restart: always
+                image: otel/opentelemetry-collector-contrib:0.98.0
+                container_name: otel-collector
+                ports:
+                  - "4318:4318"
+                  - "8889:8889"
                 volumes:
                   - ./otel-config.yaml:/etc/otel/config.yaml
                 command: ["--config=/etc/otel/config.yaml"]
-                ports:
-                  - "4317:4317"
-                  - "4318:4318"
-                  - "8889:8889"
-              loki:
-                image: grafana/loki:latest
-                restart: always
-                ports:
-                  - "3100:3100"
-                command: -config.file=/etc/loki/local-config.yaml
-              promtail:
-                image: grafana/promtail:latest
-                restart: always
-                volumes:
-                  - ./promtail-config.yaml:/etc/promtail/config.yaml
-                  - /var/log:/var/log
-                command: -config.file=/etc/promtail/config.yaml
+                depends_on:
+                  - loki
+                  - prometheus
+
+            volumes:
+              loki-data:
             EOF
             
             chmod 644 /opt/monitoring/*
