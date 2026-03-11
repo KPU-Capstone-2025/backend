@@ -12,10 +12,6 @@ import org.springframework.web.bind.annotation.*
 @CrossOrigin("*")
 class DashboardController(private val monitoringService: MonitoringService) {
 
-    /**
-     * 업체별 컨테이너 목록 조회
-     * GET /api/dashboard/container/{companyId}
-     */
     @GetMapping("/container/{companyId}")
     fun list(
         @PathVariable companyId: Long,
@@ -29,10 +25,6 @@ class DashboardController(private val monitoringService: MonitoringService) {
         )
     }
 
-    /**
-     * 호스트 서버 리소스 조회
-     * GET /api/dashboard/{companyId}/host
-     */
     @GetMapping("/{companyId}/host")
     fun host(@PathVariable companyId: Long): ApiResponse<ResourceMetrics> {
         return ApiResponse(
@@ -43,10 +35,6 @@ class DashboardController(private val monitoringService: MonitoringService) {
         )
     }
 
-    /**
-     * 컨테이너별 상세 리소스 조회
-     * GET /api/dashboard/{companyId}/{containerId}
-     */
     @GetMapping("/{companyId}/{containerId}")
     fun detail(
         @PathVariable companyId: Long,
@@ -61,22 +49,21 @@ class DashboardController(private val monitoringService: MonitoringService) {
         )
     }
 
-    /**
-     * Loki 로그 조회 (데모용)
-     * GET /api/dashboard/{companyId}/logs
-     */
     @GetMapping("/{companyId}/logs")
     fun logs(
         @PathVariable companyId: Long,
-        @RequestParam(defaultValue = "{job=\"metric-agent\"}") query: String,
-        @RequestParam(defaultValue = "100") limit: Int,
-        @RequestParam(defaultValue = "false") demo: Boolean
+        @RequestParam(required = false) containerId: String?,
+        @RequestParam(required = false) level: String?,
+        @RequestParam(required = false) keyword: String?,
+        @RequestParam(required = false) startTime: Long?,
+        @RequestParam(required = false) endTime: Long?,
+        @RequestParam(defaultValue = "100") limit: Int
     ): ApiResponse<LogEntry> {
         return ApiResponse(
             isSuccess = true,
             code = "dashboard200-1",
             message = "성공적으로 로그를 조회했습니다.",
-            containers = monitoringService.getLogs(companyId, query, limit, demo)
+            containers = monitoringService.getLogs(companyId, containerId, level, keyword, startTime, endTime, limit)
         )
     }
 }

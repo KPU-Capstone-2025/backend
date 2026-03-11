@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service
 import org.springframework.web.client.RestTemplate
 import org.springframework.web.util.UriComponentsBuilder
 import java.time.Instant
-import kotlin.random.Random
 
 @Service
 class MonitoringService(
@@ -19,11 +18,10 @@ class MonitoringService(
     @Value("\${aws.alb.dns.name}") private val albDnsName: String
 ) {
     private val promUrl = "http://$albDnsName:4318/api/v1/query"
-    private val lokiUrl = "http://$albDnsName:4318/loki/api/v1/query_range"
+    private val lokiUrl = "http://$albDnsName:4318/loki/api/v1/query_range" 
 
     fun getContainerList(companyId: Long, freshWindowSec: Int): List<ContainerStatus> {
         val company = companyRepository.findById(companyId).orElseThrow()
-
         val safeWindow = freshWindowSec.coerceIn(10, 3600)
         val query = "sum by (container_name) (count_over_time(container_memory_usage_bytes{container_name!=\"\"}[${safeWindow}s]))"
         val results = queryPrometheus(query, company.monitoringId)
@@ -47,7 +45,6 @@ class MonitoringService(
         val cpu = querySingleValue(cpuQuery, monId) ?: 0.0
         val mem = querySingleValue("system_memory_usage", monId) ?: 0.0
         val disk = querySingleValue("system_disk_usage", monId) ?: 0.0
-    
         val rxQuery = "rate(system_network_rx_bytes[1m])"
         val txQuery = "rate(system_network_tx_bytes[1m])"
         val rx = querySingleValue(rxQuery, monId) ?: 0.0
@@ -80,8 +77,7 @@ class MonitoringService(
         keyword: String?, 
         startTimeMs: Long?, 
         endTimeMs: Long?, 
-        limit: Int, 
-        forceDemo: Boolean = false
+        limit: Int
     ): List<LogEntry> {
         val company = companyRepository.findById(companyId).orElseThrow()
         val safeLimit = limit.coerceIn(1, 500)
@@ -89,24 +85,20 @@ class MonitoringService(
         var logQuery = "{job=~\"metric-agent|backend\"}" 
 
         if (!containerId.isNullOrBlank()) {
-            logQuery = "{container_name=\"$containerId\"}"
+            logQuery += " |= \"$containerId\""
         }
 
-        if (!level.isNullOrBlank() || !keyword.isNullOrBlank()) {
-            logQuery += " | json" 
-            if (!level.isNullOrBlank() && level != "ALL") {
-                logQuery += " | severity=~\"(?i)$level.*\"" // INFO, WARN, ERROR 필터
-            }
-            if (!keyword.isNullOrBlank()) {
-                logQuery += " | body=~\"(?i).*$keyword.*\"" // 키워드 포함 여부 검색
-            }
+        if (!level.isNullOrBlank() && level.uppercase() != "ALL") {
+            logQuery += " |~ \"(?i)$level\""
         }
 
-        
-        val endNs = (endTimeMs ?: Instant.now().toEpochMilli()) * 1_000_000
-        val startNs = (startTimeMs ?: (Instant.now().toEpochMilli() - 15 * 60 * 1000)) * 1_000_000
+        if (!keyword.isNullOrBlank()) {
+            logQuery += " |~ \"(?i).*$keyword.*\""
+        }
 
         val headers = HttpHeaders().apply { set("X-Server-Group", company.monitoringId) }
+        val endNs = (endTimeMs ?: Instant.now().toEpochMilli()) * 1_000_000
+        val startNs = (startTimeMs ?: (Instant.now().toEpochMilli() - 15 * 60 * 1000)) * 1_000_000
 
         val uri = UriComponentsBuilder.fromHttpUrl(lokiUrl)
             .queryParam("query", logQuery)
@@ -133,7 +125,7 @@ class MonitoringService(
                 values.mapNotNull { valueObj ->
                     val pair = valueObj as? List<*> ?: return@mapNotNull null
                     if (pair.size < 2) return@mapNotNull null
-                    
+
                     LogEntry(
                         timestamp = pair[0]?.toString() ?: "",
                         message = pair[1]?.toString() ?: "",
@@ -142,36 +134,8 @@ class MonitoringService(
                 }
             }
         } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun buildDemoLogs(companyName: String, monitoringId: String, query: String, limit: Int): List<LogEntry> {
-        val templates = listOf(
-            "metric-agent heartbeat ok",
-            "cpu sample collected",
-            "memory sample collected",
-            "network stats exported",
-            "collector export success",
-            "docker container scan complete",
-            "system load check passed"
-        )
-
-        val nowNs = Instant.now().toEpochMilli() * 1_000_000
-        val maxLogs = minOf(limit, 20)
-
-        return (0 until maxLogs).map { idx ->
-            val ts = (nowNs - idx * 5_000_000_000L).toString()
-            val message = "[DEMO][$companyName][$query] ${templates[Random.nextInt(templates.size)]}"
-            LogEntry(
-                timestamp = ts,
-                message = message,
-                labels = mapOf(
-                    "source" to "demo",
-                    "monitoring_id" to monitoringId,
-                    "job" to "metric-agent"
-                )
-            )
+            // 에러 발생 시 빈 리스트 반환 (Loki 쿼리 에러 방어)
+            emptyList() 
         }
     }
 
