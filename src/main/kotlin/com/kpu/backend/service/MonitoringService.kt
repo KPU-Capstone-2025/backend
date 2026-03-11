@@ -156,8 +156,7 @@ class MonitoringService(
 
         val sourceType = if (containerName != null) "container" else "host"
         val sourceName = containerName ?: hostName ?: "Unknown Server"
-        
-        // 🌟 무조건 해석을 달아주도록 변경!
+    
         val interpretation = analyzeLogContent(cleanBody, severity)
 
         return LogEntry(
