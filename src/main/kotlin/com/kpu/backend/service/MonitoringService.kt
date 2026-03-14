@@ -41,7 +41,7 @@ class MonitoringService(
         val company = companyRepository.findById(companyId).orElseThrow()
         val monId = company.monitoringId
         
-        val cpuQuery = "rate(system_cpu_usage[1m]) * 100" 
+        val cpuQuery = "system_cpu_usage"
         val cpu = querySingleValue(cpuQuery, monId) ?: 0.0
         val mem = querySingleValue("system_memory_usage", monId) ?: 0.0
         val disk = querySingleValue("system_disk_usage", monId) ?: 0.0
@@ -241,7 +241,7 @@ class MonitoringService(
             )
         }
 
-        // 🌟 6.기본 해석
+        // 6.기본 해석
         return Interpretation(
             title = "일반 상태 기록",
             status = "info",
