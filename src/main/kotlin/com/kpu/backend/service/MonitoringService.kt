@@ -77,7 +77,7 @@ class MonitoringService(
         val company = companyRepository.findById(companyId).orElseThrow()
         val safeLimit = limit.coerceIn(1, 500)
 
-        var logQuery = "{job=~\"metric-agent|backend\"}" 
+        var logQuery = "{job=~\"metric-agent|backend|fake-error\"}"
 
         if (!containerId.isNullOrBlank()) {
             logQuery += " |= \"$containerId\""
@@ -175,7 +175,26 @@ class MonitoringService(
     private fun analyzeLogContent(body: String, severity: String): Interpretation {
         val lowerBody = body.lowercase()
 
-        // 1. AWS SSM 권한 에러
+        if (lowerBody.contains("cpu") && (lowerBody.contains("over") || lowerBody.contains("100") || lowerBody.contains("stress"))) {
+            return Interpretation(
+                title = "[긴급] CPU 리소스 임계치 초과",
+                status = "danger",
+                description = "서버의 CPU 사용량이 100%에 도달하여 서비스 지연 및 다운타임이 우려됩니다.",
+                action = "1. 터미널에서 'top' 명령어로 원인 프로세스를 확인하세요.\n2. 'killall stress' 명령어로 부하 테스트 프로세스를 강제 종료하세요.\n3. 스케일업(Scale-up)을 고려하세요.",
+                evidence = listOf("CPU", "Overload", "stress")
+            )
+        }
+        
+        if (lowerBody.contains("stress-ng: invoked") || (lowerBody.contains("stress") && lowerBody.contains("invoked"))) {
+            return Interpretation(
+                title = "부하 테스트 시뮬레이션 동작",
+                status = "info",
+                description = "관리자에 의해 의도적인 리소스 부하 테스트(stress) 프로세스가 백그라운드에서 실행되었습니다.",
+                action = "특이 사항 없음. 데모 시뮬레이션이 정상적으로 진행 중입니다.",
+                evidence = listOf("stress-ng", "invoked")
+            )
+        }
+
         if (lowerBody.contains("systems manager") && lowerBody.contains("accessdenied")) {
             return Interpretation(
                 title = "SSM IAM 권한 오류",
@@ -186,7 +205,6 @@ class MonitoringService(
             )
         }
         
-        // 2. OOM (메모리 고갈)
         if (lowerBody.contains("outofmemory") || lowerBody.contains("oom killed")) {
             return Interpretation(
                 title = "메모리 고갈 (OOM)",
@@ -197,7 +215,6 @@ class MonitoringService(
             )
         }
 
-        // 3. 404/405 에러
         if (lowerBody.contains("404") || lowerBody.contains("no such file or directory")) {
             return Interpretation(
                 title = "파일/경로 찾을 수 없음 (404)",
@@ -207,8 +224,7 @@ class MonitoringService(
                 evidence = listOf("404", "No such file")
             )
         }
-
-        // 4. 일반적인 에러/경고 폴백
+)
         if (severity == "ERROR" || severity == "WARN") {
             return Interpretation(
                 title = "시스템 예외 발생",
@@ -219,8 +235,6 @@ class MonitoringService(
             )
         }
 
-        // 5. 정상 로그 상세 분류 추가
-        
         if (lowerBody.contains("cron")) {
             return Interpretation(
                 title = "스케줄러(CRON) 동작",
@@ -241,7 +255,6 @@ class MonitoringService(
             )
         }
 
-        // 6.기본 해석
         return Interpretation(
             title = "일반 상태 기록",
             status = "info",
