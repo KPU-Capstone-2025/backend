@@ -224,7 +224,6 @@ class MonitoringService(
                 evidence = listOf("404", "No such file")
             )
         }
-)
         if (severity == "ERROR" || severity == "WARN") {
             return Interpretation(
                 title = "시스템 예외 발생",

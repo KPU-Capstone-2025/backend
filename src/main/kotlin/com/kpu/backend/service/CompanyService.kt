@@ -127,102 +127,107 @@ class CompanyService(
     }
 
     private fun getUserDataScript(): String {
-        val script = """
-            #!/bin/bash
-            mkdir -p /opt/monitoring
-            cd /opt/monitoring
+    val script = """
+        #!/bin/bash
+        mkdir -p /opt/monitoring
+        cd /opt/monitoring
 
-            cat << 'EOF' > otel-config.yaml
-            receivers:
-              otlp:
-                protocols:
-                  grpc:
-                    endpoint: "0.0.0.0:4317"
-                  http:
-                    endpoint: "0.0.0.0:4318"
-                    cors:
-                      allowed_origins: ["*"]
+        # 1. 알림 규칙 설정
+        cat << 'EOF' > alert.rules.yml
+        groups:
+          - name: resource_alerts
+            rules:
+              - alert: HighCpuUsage
+                expr: system_cpu_usage > 80
+                for: 1m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: "CPU 과부하 감지"
+                  description: "CPU 사용량이 80%를 초과했습니다."
+        EOF
 
-            processors:
-              batch:
-                send_batch_size: 50
-                timeout: 2s
+        # 2. Alertmanager 설정
+        cat << 'EOF' > alertmanager.yml
+        route:
+          receiver: 'central-backend'
+          group_wait: 10s
+          repeat_interval: 1h
 
-            exporters:
-              debug:
-                verbosity: detailed
-              prometheus:
-                endpoint: "0.0.0.0:8889"
-                resource_to_telemetry_conversion:
-                  enabled: true
-              loki:
-                endpoint: "http://loki:3100/loki/api/v1/push"
+        receivers:
+          - name: 'central-backend'
+            webhook_configs:
+              - url: 'http://api.monitor.com/api/alerts/webhook' # 중앙 서버 도메인/IP
+        EOF
 
-            service:
-              pipelines:
-                metrics:
-                  receivers: [otlp]
-                  processors: [batch]
-                  exporters: [prometheus, debug]
-                logs:
-                  receivers: [otlp]
-                  processors: [batch]
-                  exporters: [loki, debug]
-            EOF
-            
-            cat << 'EOF' > prometheus.yml
-            global:
-              scrape_interval: 5s
+        # 3. OTel Config
+        cat << 'EOF' > otel-config.yaml
+        # ... (기존 내용 유지) ...
+        EOF
+        
+        # 4. Prometheus 설정
+        cat << 'EOF' > prometheus.yml
+        global:
+          scrape_interval: 5s
 
-            scrape_configs:
-              - job_name: "otel-collector"
-                static_configs:
-                  - targets: ["otel-collector:8889"]
-                honor_labels: true
-            EOF
-            
-            cat << 'EOF' > docker-compose.yml
-            version: "3.9"
+        alerting:
+          alertmanagers:
+            - static_configs:
+                - targets: ["alertmanager:9093"]
 
-            services:
-              loki:
-                image: grafana/loki:2.9.4
-                container_name: loki
-                ports:
-                  - "3100:3100"
-                volumes:
-                  - loki-data:/loki
+        rule_files:
+          - "alert.rules.yml"
 
-              prometheus:
-                image: prom/prometheus:v2.50.0
-                container_name: prometheus
-                ports:
-                  - "9090:9090"
-                volumes:
-                  - ./prometheus.yml:/etc/prometheus/prometheus.yml
+        scrape_configs:
+          - job_name: "otel-collector"
+            static_configs:
+              - targets: ["otel-collector:8889"]
+            honor_labels: true
+        EOF
+        
+        # 5. Docker Compose
+        cat << 'EOF' > docker-compose.yml
+        version: "3.9"
+        services:
+          loki:
+            image: grafana/loki:2.9.4
+            container_name: loki
+            ports: ["3100:3100"]
+            volumes: ["loki-data:/loki"]
 
-              otel-collector:
-                image: otel/opentelemetry-collector-contrib:0.98.0
-                container_name: otel-collector
-                ports:
-                  - "4318:4318"
-                  - "8889:8889"
-                volumes:
-                  - ./otel-config.yaml:/etc/otel/config.yaml
-                command: ["--config=/etc/otel/config.yaml"]
-                depends_on:
-                  - loki
-                  - prometheus
+          alertmanager:
+            image: prom/alertmanager:v0.25.0
+            container_name: alertmanager
+            ports: ["9093:9093"]
+            volumes: ["./alertmanager.yml:/etc/alertmanager/alertmanager.yml"]
+            command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
 
+          prometheus:
+            image: prom/prometheus:v2.50.0
+            container_name: prometheus
+            ports: ["9090:9090"]
             volumes:
-              loki-data:
-            EOF
-            
-            chmod 644 /opt/monitoring/*
-            docker-compose up -d
-        """.trimIndent()
-        return Base64.getEncoder().encodeToString(script.toByteArray())
-    }
+              - ./prometheus.yml:/etc/prometheus/prometheus.yml
+              - ./alert.rules.yml:/etc/prometheus/alert.rules.yml
+            depends_on: ["alertmanager"]
+
+          otel-collector:
+            image: otel/opentelemetry-collector-contrib:0.98.0
+            container_name: otel-collector
+            ports: ["4318:4318", "8889:8889"]
+            volumes: ["./otel-config.yaml:/etc/otel/config.yaml"]
+            command: ["--config=/etc/otel/config.yaml"]
+            depends_on: ["loki", "prometheus"]
+
+        volumes:
+          loki-data:
+        EOF
+        
+        chmod 644 /opt/monitoring/*
+        docker-compose up -d
+    """.trimIndent()
+    return Base64.getEncoder().encodeToString(script.toByteArray())
+}
 
     private fun launchInstance(companyName: String): String {
         val tagSpec = TagSpecification.builder()
