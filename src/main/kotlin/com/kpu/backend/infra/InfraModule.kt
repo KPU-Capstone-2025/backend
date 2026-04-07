@@ -18,13 +18,13 @@ class AiService(
 ) {
     private val log = LoggerFactory.getLogger(AiService::class.java)
 
-    fun callGPTWithChatHistory(messages: List<Map<String, String>>): String {
+    private fun callOpenAI(messages: List<Map<String, String>>): String {
         val headers = HttpHeaders().apply {
             contentType = MediaType.APPLICATION_JSON
             setBearerAuth(apiKey)
         }
         val body = mapOf(
-            "model" to "gpt-3.5-turbo",
+            "model" to "gpt-4o-mini", 
             "messages" to messages,
             "temperature" to 0.7
         )
@@ -33,17 +33,31 @@ class AiService(
             val response = restTemplate.postForEntity(apiUrl, HttpEntity(body, headers), Map::class.java)
             val choices = response.body?.get("choices") as? List<Map<String, Any>>
             val message = choices?.get(0)?.get("message") as? Map<String, String>
-            message?.get("content") ?: "분석을 생성할 수 없습니다."
+            message?.get("content") ?: "분석 결과를 가져올 수 없습니다."
         } catch (e: Exception) {
-            log.error("AI Service Error", e)
-            "AI 서비스 연결 오류: ${e.message}"
+            log.error("AI Service Error: ${e.message}")
+            "AI 서비스 응답 지연 (잠시 후 다시 시도해 주세요)"
         }
     }
 
+    // 1. [Webhook용] 장애 발생 시 단발성 분석
     fun getAnalysisFromGPT(alertName: String, description: String): String {
-        val prompt = "서버 장애 분석 요청. 장애명: $alertName, 상세내용: $description. 해결 방안을 간결하게 제시해."
-        val messages = listOf(mapOf("role" to "user", "content" to prompt))
-        return callGPTWithChatHistory(messages)
+        val prompt = """
+            당신은 서버 보안 및 운영 전문가입니다. 
+            다음 장애 상황에 대해 원인과 해결 방안을 3줄 이내로 간결하게 답변하세요.
+            장애명: $alertName
+            내용: $description
+        """.trimIndent()
+        return callOpenAI(listOf(mapOf("role" to "user", "content" to prompt)))
+    }
+
+    // 2. [Chatbot용] 실시간 상태 및 로그를 포함한 답변 생성
+    fun getChatResponse(systemContext: String, userQuestion: String): String {
+        val messages = listOf(
+            mapOf("role" to "system", "content" to systemContext),
+            mapOf("role" to "user", "content" to userQuestion)
+        )
+        return callOpenAI(messages)
     }
 }
 
@@ -67,9 +81,9 @@ class EmailNotificationService(
                 setFrom(fromEmail)
             }
             mailSender.send(message)
-            log.info("이메일 발송 완료 -> 수신자: $to")
+            log.info("📧 이메일 발송 완료 -> $to")
         } catch (e: Exception) {
-            log.error("이메일 발송 실패 -> 수신자: $to, 사유: ${e.message}")
+            log.error("📧 이메일 발송 실패: ${e.message}")
         }
     }
 }

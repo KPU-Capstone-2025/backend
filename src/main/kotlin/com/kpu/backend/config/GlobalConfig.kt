@@ -24,39 +24,24 @@ import software.amazon.awssdk.services.ssm.SsmClient
 @EnableWebSecurity
 class GlobalConfig {
 
-    @Value("\${cloud.aws.credentials.access-key}")
-    private lateinit var accessKey: String
+    @Value("\${cloud.aws.credentials.access-key}") private lateinit var accessKey: String
+    @Value("\${cloud.aws.credentials.secret-key}") private lateinit var secretKey: String
+    @Value("\${cloud.aws.region.static}") private lateinit var region: String
 
-    @Value("\${cloud.aws.credentials.secret-key}")
-    private lateinit var secretKey: String
-
-    @Value("\${cloud.aws.region.static}")
-    private lateinit var region: String
-
-    @Bean
-    fun restTemplate() = RestTemplate()
+    @Bean fun restTemplate() = RestTemplate()
 
     private fun getCredentialsProvider() = StaticCredentialsProvider.create(
         AwsBasicCredentials.create(accessKey, secretKey)
     )
 
-    @Bean
-    fun ec2Client(): Ec2Client = Ec2Client.builder()
-        .region(Region.of(region))
-        .credentialsProvider(getCredentialsProvider())
-        .build()
+    @Bean fun ec2Client(): Ec2Client = Ec2Client.builder()
+        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
 
-    @Bean
-    fun albClient(): ElasticLoadBalancingV2Client = ElasticLoadBalancingV2Client.builder()
-        .region(Region.of(region))
-        .credentialsProvider(getCredentialsProvider())
-        .build()
+    @Bean fun albClient(): ElasticLoadBalancingV2Client = ElasticLoadBalancingV2Client.builder()
+        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
 
-    @Bean
-    fun ssmClient(): SsmClient = SsmClient.builder()
-        .region(Region.of(region))
-        .credentialsProvider(getCredentialsProvider())
-        .build()
+    @Bean fun ssmClient(): SsmClient = SsmClient.builder()
+        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
 
     @Bean
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
@@ -81,12 +66,11 @@ class GlobalConfig {
     }
 }
 
-// 공통 응답 DTO
+// 공통 응답 DTO 
 data class ApiResponse<T>(
     val isSuccess: Boolean,
     val code: String,
     val message: String,
     @JsonInclude(JsonInclude.Include.NON_NULL) val result: T? = null,
-    @JsonInclude(JsonInclude.Include.NON_NULL) val containers: List<T>? = null,
-    @JsonInclude(JsonInclude.Include.NON_NULL) val results: T? = null
+    @JsonInclude(JsonInclude.Include.NON_NULL) val containers: List<T>? = null 
 )
