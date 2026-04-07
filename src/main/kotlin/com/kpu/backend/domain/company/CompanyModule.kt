@@ -178,9 +178,9 @@ class CompanyService(
             createRule(basePrio + 3, monitoringId, "*", otelTg)
 
         } catch (e: Exception) {
-            throw RuntimeException("인프라 구성 실패: \${e.message}")
+            e.printStackTrace() // 서버 로그에 빨간 줄로 상세 원인을 다 찍어줍니다.
+            throw RuntimeException("인프라 구성 실패: ${e.message}", e) 
         }
-
         return saveCompany(req, monitoringId)
     }
 
