@@ -5,6 +5,7 @@ import com.kpu.backend.infra.AiService
 import com.kpu.backend.infra.NotificationService
 import jakarta.persistence.*
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 import org.springframework.data.jpa.repository.JpaRepository
@@ -20,12 +21,13 @@ import software.amazon.awssdk.services.ssm.SsmClient
 import software.amazon.awssdk.services.ssm.model.SendCommandRequest
 import java.time.LocalDateTime
 
-//DTO
+//DTO (diskThreshold 포함)
 data class RuleUpdateRequest(
     val companyId: String? = null,
     val monitoringId: String? = null,
     val cpuThreshold: Int,
     val memoryThreshold: Int,
+    val diskThreshold: Int,
     val networkThreshold: Long,
     val durationSeconds: Int
 )
@@ -75,21 +77,29 @@ class AlertEventHandler(private val aiService: AiService, private val notificati
 class AlertRuleService(
     private val ssmClient: SsmClient,
     private val ec2Client: Ec2Client,
-    private val companyRepository: CompanyRepository
+    private val companyRepository: CompanyRepository,
+    @Value("\${spring.profiles.active:default}") private val activeProfile: String // 로컬 모드 감지용
 ) {
     private val log = LoggerFactory.getLogger(AlertRuleService::class.java)
 
     fun updateRules(request: RuleUpdateRequest) {
         val resolvedMonitoringId = resolveMonitoringId(request)
+
+        if (activeProfile == "local") {
+            log.info("[로컬 모드] 룰 업데이트 로직을 건너뜁니다. monitoringId=$resolvedMonitoringId")
+            return
+        }
+
         val instanceId = findMonitoringInstanceId(resolvedMonitoringId)
             ?: throw IllegalStateException("모니터링 서버를 찾을 수 없습니다. monitoringId=$resolvedMonitoringId")
 
+        // yaml 생성부: disk 사용량 룰 추가 및 100배 곱하기 제거 유지
         val yaml = """
             |groups:
             |  - name: rules
             |    rules:
             |      - alert: HighCpuUsage
-            |        expr: (system_cpu_usage * 100) > ${request.cpuThreshold}
+            |        expr: system_cpu_usage > ${request.cpuThreshold}
             |        for: ${request.durationSeconds}s
             |        labels:
             |          severity: critical
@@ -107,6 +117,16 @@ class AlertRuleService(
             |        annotations:
             |          summary: 메모리 과부하 감지
             |          description: 서버의 메모리 사용량이 ${request.memoryThreshold}%를 초과했습니다.
+            |
+            |      - alert: HighDiskUsage
+            |        expr: system_disk_usage > ${request.diskThreshold}
+            |        for: ${request.durationSeconds}s
+            |        labels:
+            |          severity: critical
+            |          company_id: $resolvedMonitoringId
+            |        annotations:
+            |          summary: 디스크 용량 부족 감지
+            |          description: 서버의 디스크 사용량이 ${request.diskThreshold}%를 초과했습니다.
             |
             |      - alert: HighNetworkTraffic
             |        expr: rate(system_network_rx_bytes[1m]) + rate(system_network_tx_bytes[1m]) > ${request.networkThreshold}

@@ -2,6 +2,7 @@ package com.kpu.backend.domain.company
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.persistence.*
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
@@ -17,7 +18,7 @@ import software.amazon.awssdk.services.elasticloadbalancingv2.model.*
 import java.time.LocalDateTime
 import java.util.*
 
-/* --- DTO & Entity (변경 없음) --- */
+/* --- DTO & Entity --- */
 data class CompanyRegisterRequest(val name: String, val email: String, val password: String, val ip: String, val phone: String)
 data class LoginRequest(val email: String, val password: String)
 data class LoginResponse(val id: Long, val name: String, val monitoringId: String)
@@ -57,20 +58,30 @@ class CompanyService(
     @Value("\${aws.subnet.private.id}") private val subnetId: String,
     @Value("\${aws.sg.monitoring.id}") private val sgId: String,
     @Value("\${aws.alb.listener.arn}") private val listenerArn: String,
-    @Value("\${monitoring.alert-webhook-url:\${monitoring.backend-url}}") private val backendUrl: String
+    @Value("\${monitoring.alert-webhook-url:\${monitoring.backend-url}}") private val backendUrl: String,
+    @Value("\${spring.profiles.active:default}") private val activeProfile: String // 로컬 모드 감지
 ) {
+    private val log = LoggerFactory.getLogger(CompanyService::class.java)
+
     @Transactional
     fun registerAndProvision(req: CompanyRegisterRequest): Company {
         val monitoringId = "mon-" + UUID.randomUUID().toString().take(8)
+        
+        if (activeProfile == "local") {
+            log.info("[로컬 모드] AWS 인프라 자동 생성 로직을 건너뜁니다. DB에만 저장됩니다. monitoringId=$monitoringId")
+            return saveCompany(req, monitoringId)
+        }
+
         val nextId = companyRepository.findMaxId() + 1
 
         try {
+            // 설치 스크립트 (디스크 임계치 기본값 90 추가됨)
             val installScript = """
                 |#!/bin/bash
                 |mkdir -p /opt/monitoring
                 |cd /opt/monitoring
                 |
-                |# Prometheus 설정 (OTel 8889 포트에서 데이터를 긁어감)
+                |# Prometheus 설정
                 |cat << 'EOF' > prometheus.yml
                 |global:
                 |  scrape_interval: 5s
@@ -88,7 +99,7 @@ class CompanyService(
                 |    honor_labels: true
                 |EOF
                 |
-                |# Alertmanager 설정 (기업별 webhook 경로로 백엔드 전달)
+                |# Alertmanager 설정
                 |cat << 'EOF' > alertmanager.yml
                 |route:
                 |  receiver: backend-webhook
@@ -102,13 +113,13 @@ class CompanyService(
                 |        send_resolved: true
                 |EOF
                 |
-                |# 기본 알람 룰 파일 생성 (초기값)
+                |# 기본 알람 룰 파일 생성 (초기값 + 디스크 추가)
                 |cat << 'EOF' > alert.rules.yml
                 |groups:
                 |  - name: rules
                 |    rules:
                 |      - alert: HighCpuUsage
-                |        expr: (system_cpu_usage * 100) > 80
+                |        expr: system_cpu_usage > 80
                 |        for: 30s
                 |        labels:
                 |          severity: critical
@@ -116,9 +127,18 @@ class CompanyService(
                 |        annotations:
                 |          summary: "CPU 과부하 감지"
                 |          description: "CPU 사용률이 80%를 초과했습니다."
+                |      - alert: HighDiskUsage
+                |        expr: system_disk_usage > 90
+                |        for: 30s
+                |        labels:
+                |          severity: critical
+                |          company_id: ${monitoringId}
+                |        annotations:
+                |          summary: "디스크 용량 부족 감지"
+                |          description: "디스크 사용량이 90%를 초과했습니다."
                 |EOF
                 |
-                |# OTel 설정 (4318에서 받고, 8889로 내보냄)
+                |# OTel 설정
                 |cat << 'EOF' > otel-config.yaml
                 |receivers:
                 |  otlp:
@@ -142,7 +162,7 @@ class CompanyService(
                 |      exporters: [loki]
                 |EOF
                 |
-                |# 컨테이너 실행 (호스트 네트워크 모드로 통신 병목 해결)
+                |# 컨테이너 실행
                 |docker rm -f loki prometheus otel-collector alertmanager || true
                 |docker run -d --name loki --network host grafana/loki:2.9.4
                 |docker run -d --name alertmanager --network host -v /opt/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml prom/alertmanager:v0.27.0 --config.file=/etc/alertmanager/alertmanager.yml
@@ -178,7 +198,7 @@ class CompanyService(
             createRule(basePrio + 3, monitoringId, "*", otelTg)
 
         } catch (e: Exception) {
-            e.printStackTrace() // 서버 로그에 빨간 줄로 상세 원인을 다 찍어줍니다.
+            e.printStackTrace()
             throw RuntimeException("인프라 구성 실패: ${e.message}", e) 
         }
         return saveCompany(req, monitoringId)
