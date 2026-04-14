@@ -32,6 +32,33 @@ class DashboardController(
         @RequestParam(defaultValue = "100") limit: Int
     ) = ApiResponse(true, "200", "성공", result = monitoringService.getLogs(companyId, null, severity, keyword, limit))
 
+    /**
+     * 월간 일별 리소스 집계
+     *
+     * 사용 예:
+     *   GET /api/dashboard/{companyId}/metrics/monthly?year=2026&month=4
+     *   GET /api/dashboard/{companyId}/metrics/monthly?year=2026&startDate=2026-04-01&endDate=2026-04-30
+     */
+    @GetMapping("/{companyId}/metrics/monthly")
+    fun monthlyMetrics(
+        @PathVariable companyId: Long,
+        @RequestParam(required = false, defaultValue = "0") year: Int,
+        @RequestParam(required = false) month: Int?,
+        @RequestParam(required = false) startDate: String?,
+        @RequestParam(required = false) endDate: String?
+    ): ApiResponse<MonthlyMetricsResponse> {
+        // year 기본값: 현재 연도
+        val resolvedYear = if (year == 0) java.time.Year.now().value else year
+        val result = monitoringService.getMonthlyMetrics(
+            companyId   = companyId,
+            year        = resolvedYear,
+            month       = month,
+            startDate   = startDate,
+            endDate     = endDate
+        )
+        return ApiResponse(true, "200", "성공", result = result)
+    }
+
     @PostMapping("/logs/analyze")
     fun analyzeLog(@RequestBody request: Map<String, String>): ResponseEntity<Map<String, String>> {
         val logContent = request["logContent"] ?: return ResponseEntity.badRequest().build()
