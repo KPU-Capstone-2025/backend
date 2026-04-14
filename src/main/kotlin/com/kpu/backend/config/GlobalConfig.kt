@@ -1,6 +1,5 @@
 package com.kpu.backend.config
 
-import com.fasterxml.jackson.annotation.JsonInclude
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -79,11 +78,3 @@ class GlobalConfig(private val jwtUtil: JwtUtil) {
     }
 }
 
-// 공통 응답 DTO 
-data class ApiResponse<T>(
-    val isSuccess: Boolean,
-    val code: String,
-    val message: String,
-    @JsonInclude(JsonInclude.Include.NON_NULL) val result: T? = null,
-    @JsonInclude(JsonInclude.Include.NON_NULL) val containers: List<T>? = null 
-)
