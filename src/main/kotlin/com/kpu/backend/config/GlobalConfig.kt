@@ -1,13 +1,14 @@
 package com.kpu.backend.config
 
-import com.fasterxml.jackson.annotation.JsonInclude
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.scheduling.annotation.EnableAsync
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.security.web.SecurityFilterChain
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
 import org.springframework.web.client.RestTemplate
 import org.springframework.web.cors.CorsConfiguration
 import org.springframework.web.cors.CorsConfigurationSource
@@ -22,13 +23,15 @@ import software.amazon.awssdk.services.ssm.SsmClient
 @EnableAsync
 @Configuration
 @EnableWebSecurity
-class GlobalConfig {
+class GlobalConfig(private val jwtUtil: JwtUtil) {
 
     @Value("\${cloud.aws.credentials.access-key}") private lateinit var accessKey: String
     @Value("\${cloud.aws.credentials.secret-key}") private lateinit var secretKey: String
     @Value("\${cloud.aws.region.static}") private lateinit var region: String
 
     @Bean fun restTemplate() = RestTemplate()
+
+    @Bean fun passwordEncoder() = BCryptPasswordEncoder()
 
     private fun getCredentialsProvider() = StaticCredentialsProvider.create(
         AwsBasicCredentials.create(accessKey, secretKey)
@@ -47,9 +50,18 @@ class GlobalConfig {
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
         http.csrf { it.disable() }.cors { it.configurationSource(corsConfigurationSource()) }
             .authorizeHttpRequests { auth ->
-                auth.requestMatchers("/api/**", "/error").permitAll()
+                auth.requestMatchers(
+                    "/api/company/login",
+                    "/api/company/register",
+                    "/api/alerts/webhook",
+                    "/api/alerts/webhook/**",
+                    "/error"
+                ).permitAll()
                 auth.anyRequest().authenticated()
-            }.httpBasic { it.disable() }.formLogin { it.disable() }
+            }
+            .httpBasic { it.disable() }
+            .formLogin { it.disable() }
+            .addFilterBefore(JwtFilter(jwtUtil), UsernamePasswordAuthenticationFilter::class.java)
         return http.build()
     }
 
@@ -66,11 +78,3 @@ class GlobalConfig {
     }
 }
 
-// 공통 응답 DTO
-data class ApiResponse<T>(
-    val isSuccess: Boolean,
-    val code: String,
-    val message: String,
-    @JsonInclude(JsonInclude.Include.NON_NULL) val result: T? = null,
-    @JsonInclude(JsonInclude.Include.NON_NULL) val containers: List<T>? = null
-)
