@@ -1,12 +1,14 @@
 package com.kpu.backend.domain.company
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.kpu.backend.config.JwtUtil
 import jakarta.persistence.*
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.http.ResponseEntity
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.*
@@ -21,7 +23,7 @@ import java.util.*
 /* --- DTO & Entity --- */
 data class CompanyRegisterRequest(val name: String, val email: String, val password: String, val ip: String, val phone: String)
 data class LoginRequest(val email: String, val password: String)
-data class LoginResponse(val id: Long, val name: String, val monitoringId: String)
+data class LoginResponse(val id: Long, val name: String, val monitoringId: String, val token: String)
 data class AgentDestination(
     val monitoringId: String,
     @JsonProperty("collector_url") val collectorUrl: String
@@ -52,6 +54,8 @@ class CompanyService(
     private val companyRepository: CompanyRepository,
     private val ec2Client: Ec2Client,
     private val albClient: ElasticLoadBalancingV2Client,
+    private val passwordEncoder: BCryptPasswordEncoder,
+    private val jwtUtil: JwtUtil,
     @Value("\${aws.alb.dns.name}") private val albDnsName: String,
     @Value("\${aws.ami.id}") private val amiId: String,
     @Value("\${aws.vpc.id}") private val vpcId: String,
@@ -226,12 +230,15 @@ class CompanyService(
     @Transactional
     fun saveCompany(req: CompanyRegisterRequest, monitoringId: String): Company {
         val nextId = companyRepository.findMaxId() + 1
-        return companyRepository.save(Company(id = nextId, name = req.name, email = req.email, password = req.password, phone = req.phone, ip = req.ip, monitoringId = monitoringId, collectorUrl = albDnsName))
+        val encodedPassword = passwordEncoder.encode(req.password)
+        return companyRepository.save(Company(id = nextId, name = req.name, email = req.email, password = encodedPassword, phone = req.phone, ip = req.ip, monitoringId = monitoringId, collectorUrl = albDnsName))
     }
 
-    fun login(req: LoginRequest): Company? {
+    fun login(req: LoginRequest): LoginResponse? {
         val company = companyRepository.findByEmail(req.email) ?: return null
-        return if (company.password == req.password) company else null
+        if (!passwordEncoder.matches(req.password, company.password)) return null
+        val token = jwtUtil.generateToken(company.id, company.monitoringId)
+        return LoginResponse(company.id, company.name, company.monitoringId, token)
     }
 
     fun getAgentInfo(companyId: Long): AgentDestination {
@@ -246,8 +253,8 @@ class CompanyService(
 class CompanyController(private val companyService: CompanyService) {
     @PostMapping("/login")
     fun login(@RequestBody req: LoginRequest): ResponseEntity<Any> {
-        val company = companyService.login(req) ?: return ResponseEntity.status(401).build()
-        return ResponseEntity.ok(LoginResponse(company.id, company.name, company.monitoringId))
+        val response = companyService.login(req) ?: return ResponseEntity.status(401).build()
+        return ResponseEntity.ok(response)
     }
     @PostMapping("/register")
     fun register(@RequestBody req: CompanyRegisterRequest): ResponseEntity<Map<String, String>> {
