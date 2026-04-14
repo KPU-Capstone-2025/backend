@@ -17,51 +17,39 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.ec2.Ec2Client
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client
+import software.amazon.awssdk.services.ssm.SsmClient
 
-@EnableAsync // 비동기 처리 활성화
+@EnableAsync
 @Configuration
 @EnableWebSecurity
 class GlobalConfig {
 
-    @Value("\${cloud.aws.credentials.access-key}")
-    private lateinit var accessKey: String
+    @Value("\${cloud.aws.credentials.access-key}") private lateinit var accessKey: String
+    @Value("\${cloud.aws.credentials.secret-key}") private lateinit var secretKey: String
+    @Value("\${cloud.aws.region.static}") private lateinit var region: String
 
-    @Value("\${cloud.aws.credentials.secret-key}")
-    private lateinit var secretKey: String
-
-    @Value("\${cloud.aws.region.static}")
-    private lateinit var region: String
-
-    @Bean
-    fun restTemplate() = RestTemplate()
+    @Bean fun restTemplate() = RestTemplate()
 
     private fun getCredentialsProvider() = StaticCredentialsProvider.create(
         AwsBasicCredentials.create(accessKey, secretKey)
     )
 
-    @Bean
-    fun ec2Client(): Ec2Client = Ec2Client.builder()
-        .region(Region.of(region))
-        .credentialsProvider(getCredentialsProvider())
-        .build()
+    @Bean fun ec2Client(): Ec2Client = Ec2Client.builder()
+        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
 
-    @Bean
-    fun albClient(): ElasticLoadBalancingV2Client = ElasticLoadBalancingV2Client.builder()
-        .region(Region.of(region))
-        .credentialsProvider(getCredentialsProvider())
-        .build()
+    @Bean fun albClient(): ElasticLoadBalancingV2Client = ElasticLoadBalancingV2Client.builder()
+        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
+
+    @Bean fun ssmClient(): SsmClient = SsmClient.builder()
+        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
 
     @Bean
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
-        http
-            .csrf { it.disable() }
-            .cors { it.configurationSource(corsConfigurationSource()) }
+        http.csrf { it.disable() }.cors { it.configurationSource(corsConfigurationSource()) }
             .authorizeHttpRequests { auth ->
-                auth.requestMatchers("/api/**").permitAll()
+                auth.requestMatchers("/api/**", "/error").permitAll()
                 auth.anyRequest().authenticated()
-            }
-            .httpBasic { it.disable() }
-            .formLogin { it.disable() }
+            }.httpBasic { it.disable() }.formLogin { it.disable() }
         return http.build()
     }
 
@@ -83,13 +71,6 @@ data class ApiResponse<T>(
     val isSuccess: Boolean,
     val code: String,
     val message: String,
-    
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    val result: T? = null,
-    
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    val containers: List<T>? = null,
-
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    val results: T? = null
+    @JsonInclude(JsonInclude.Include.NON_NULL) val result: T? = null,
+    @JsonInclude(JsonInclude.Include.NON_NULL) val containers: List<T>? = null
 )
