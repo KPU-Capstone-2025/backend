@@ -15,8 +15,8 @@ class DashboardController(
     private val aiService: AiService
 ) {
     @GetMapping("/container/{companyId}")
-    fun list(@PathVariable companyId: Long) =
-        ApiResponse(true, "200", "성공", containers = monitoringService.getContainerList(companyId))
+    fun list(@PathVariable companyId: Long, @RequestParam(required = false) hostName: String?) =
+        ApiResponse(true, "200", "성공", containers = monitoringService.getContainerList(companyId, hostName))
 
     @GetMapping("/{companyId}/host")
     fun host(@PathVariable companyId: Long, @RequestParam(required = false) hostName: String?) =
@@ -59,16 +59,17 @@ class DashboardController(
         @RequestParam(required = false, defaultValue = "0") year: Int,
         @RequestParam(required = false) month: Int?,
         @RequestParam(required = false) startDate: String?,
-        @RequestParam(required = false) endDate: String?
+        @RequestParam(required = false) endDate: String?,
+        @RequestParam(required = false) hostName: String?
     ): ApiResponse<MonthlyMetricsResponse> {
-        // year 기본값: 현재 연도
         val resolvedYear = if (year == 0) java.time.Year.now().value else year
         val result = monitoringService.getMonthlyMetrics(
             companyId   = companyId,
             year        = resolvedYear,
             month       = month,
             startDate   = startDate,
-            endDate     = endDate
+            endDate     = endDate,
+            hostName    = hostName
         )
         return ApiResponse(true, "200", "성공", result = result)
     }

@@ -232,6 +232,11 @@ class CompanyService(
         |      enabled: true
         |  loki:
         |    endpoint: "http://localhost:3100/loki/api/v1/push"
+        |    default_labels_enabled:
+        |      exporter: false
+        |      job: true
+        |      instance: true
+        |      level: true
         |service:
         |  pipelines:
         |    metrics:

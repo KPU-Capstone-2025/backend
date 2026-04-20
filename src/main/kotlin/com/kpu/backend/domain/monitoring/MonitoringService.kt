@@ -25,9 +25,12 @@ class MonitoringService(
     private val log = LoggerFactory.getLogger(MonitoringService::class.java)
     private val mapper = ObjectMapper()
 
-    fun getContainerList(companyId: Long): List<ContainerStatus> {
+    fun getContainerList(companyId: Long, hostName: String? = null): List<ContainerStatus> {
         val company = companyRepository.findById(companyId).orElse(null) ?: return emptyList()
-        val query = "container_memory_usage_bytes{container_name!=\"\"} > 0"
+        val query = if (hostName != null)
+            "container_memory_usage_bytes{container_name!=\"\",host_name=\"$hostName\"} > 0"
+        else
+            "container_memory_usage_bytes{container_name!=\"\"} > 0"
 
         return queryPrometheus(query, company.monitoringId).mapNotNull {
             val metric = it["metric"] as Map<*, *>
@@ -153,11 +156,13 @@ class MonitoringService(
         year: Int,
         month: Int?,
         startDate: String?,
-        endDate: String?
+        endDate: String?,
+        hostName: String? = null
     ): MonthlyMetricsResponse {
         val company = companyRepository.findById(companyId).orElse(null)
             ?: return MonthlyMetricsResponse(year, month, startDate, endDate, emptyList())
         val monId = company.monitoringId
+        fun hq(metric: String) = if (hostName != null) "$metric{host_name=\"$hostName\"}" else metric
 
         // ── 날짜 범위 계산 ──────────────────────────────────────────
         val fmt = DateTimeFormatter.ISO_LOCAL_DATE
@@ -187,15 +192,15 @@ class MonitoringService(
         val step       = 3600  // 1시간 step → 하루 최대 24포인트
 
         // ── 호스트 메트릭 범위 쿼리 ──────────────────────────────────
-        val hostCpuPts  = queryRange("system_cpu_usage",        monId, epochStart, epochEnd, step)
-        val hostMemPts  = queryRange("system_memory_usage",     monId, epochStart, epochEnd, step)
-        val hostDiskPts = queryRange("system_disk_usage",       monId, epochStart, epochEnd, step)
-        val hostRxPts   = queryRange("rate(system_network_rx_bytes[1h])", monId, epochStart, epochEnd, step)
-        val hostTxPts   = queryRange("rate(system_network_tx_bytes[1h])", monId, epochStart, epochEnd, step)
-        val totalMemBytes = querySingleValue("system_memory_total_bytes", monId) ?: 0.0
+        val hostCpuPts  = queryRange(hq("system_cpu_usage"),        monId, epochStart, epochEnd, step)
+        val hostMemPts  = queryRange(hq("system_memory_usage"),     monId, epochStart, epochEnd, step)
+        val hostDiskPts = queryRange(hq("system_disk_usage"),       monId, epochStart, epochEnd, step)
+        val hostRxPts   = queryRange(hq("rate(system_network_rx_bytes[1h])"), monId, epochStart, epochEnd, step)
+        val hostTxPts   = queryRange(hq("rate(system_network_tx_bytes[1h])"), monId, epochStart, epochEnd, step)
+        val totalMemBytes = querySingleValue(hq("system_memory_total_bytes"), monId) ?: 0.0
 
         // ── 컨테이너 목록 조회 후 메트릭 범위 쿼리 ──────────────────
-        val containers = getContainerList(companyId)
+        val containers = getContainerList(companyId, hostName)
         // Map<containerId, Triple<cpuPts, memPts, netPts>>
         val containerSeries = containers.associate { c ->
             val id = c.containerId
