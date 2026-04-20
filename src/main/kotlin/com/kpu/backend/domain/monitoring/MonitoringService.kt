@@ -38,20 +38,33 @@ class MonitoringService(
         }.distinctBy { it.containerId }
     }
 
-    fun getHostMetrics(companyId: Long): ResourceMetrics {
+    fun getHostMetrics(companyId: Long, hostName: String? = null): ResourceMetrics {
         val monId = companyRepository.findById(companyId).orElse(null)?.monitoringId
             ?: return ResourceMetrics(status = "NOT_FOUND", cpuUsage = 0.0, memoryUsage = 0.0, diskUsage = 0.0, networkTraffic = 0.0)
 
-        val rx = querySingleValue("rate(system_network_rx_bytes[1m])", monId) ?: 0.0
-        val tx = querySingleValue("rate(system_network_tx_bytes[1m])", monId) ?: 0.0
+        fun q(metric: String) = if (hostName != null) "$metric{host_name=\"$hostName\"}" else metric
+        val rx = querySingleValue(q("rate(system_network_rx_bytes[1m])"), monId) ?: 0.0
+        val tx = querySingleValue(q("rate(system_network_tx_bytes[1m])"), monId) ?: 0.0
 
         return ResourceMetrics(
             status = "STABLE",
-            cpuUsage = querySingleValue("system_cpu_usage", monId) ?: 0.0,
-            memoryUsage = querySingleValue("system_memory_usage", monId) ?: 0.0,
-            diskUsage = querySingleValue("system_disk_usage", monId) ?: 0.0,
+            cpuUsage = querySingleValue(q("system_cpu_usage"), monId) ?: 0.0,
+            memoryUsage = querySingleValue(q("system_memory_usage"), monId) ?: 0.0,
+            diskUsage = querySingleValue(q("system_disk_usage"), monId) ?: 0.0,
             networkTraffic = rx + tx
         )
+    }
+
+    fun getDiscoveredHosts(companyId: Long): List<String> {
+        val monId = companyRepository.findById(companyId).orElse(null)?.monitoringId ?: return emptyList()
+        val uri = UriComponentsBuilder.fromUriString("http://$albDnsName/api/v1/label/host_name/values")
+            .build(true).toUri()
+        return try {
+            val headers = org.springframework.http.HttpHeaders().apply { set("X-Server-Group", monId) }
+            val res = restTemplate.exchange(uri, org.springframework.http.HttpMethod.GET, org.springframework.http.HttpEntity<Unit>(headers), Map::class.java)
+            @Suppress("UNCHECKED_CAST")
+            (res.body?.get("data") as? List<String>) ?: emptyList()
+        } catch (e: Exception) { emptyList() }
     }
 
     fun getContainerMetrics(companyId: Long, containerName: String): ResourceMetrics {
@@ -394,6 +407,12 @@ class MonitoringService(
             logs.filter { it.severity == "ERROR" || it.severity == "WARN" }.sortedByDescending { it.timestamp }
         } catch (e: Exception) { emptyList() }
     }
+
+    fun queryRangePublic(query: String, monId: String, start: Long, end: Long, step: Int) =
+        queryRange(query, monId, start, end, step)
+
+    fun querySingleValuePublic(query: String, monId: String) =
+        querySingleValue(query, monId)
 
     private fun encodeQuery(query: String): String =
         java.net.URLEncoder.encode(query, java.nio.charset.StandardCharsets.UTF_8)

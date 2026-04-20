@@ -6,7 +6,6 @@ data class CompanyRegisterRequest(
     val name: String,
     val email: String,
     val password: String,
-    val ip: String,
     val phone: String
 )
 

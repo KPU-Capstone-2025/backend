@@ -55,6 +55,11 @@ class GlobalConfig(private val jwtUtil: JwtUtil) {
                     "/api/company/register",
                     "/api/alerts/webhook",
                     "/api/alerts/webhook/**",
+                    "/api/servers/**",
+                    "/api/dashboard/**/hosts",
+                    "/api/dashboard/**/anomaly",
+                    "/api/dashboard/**/prediction",
+                    "/api/dashboard/**/alerts/daily",
                     "/error"
                 ).permitAll()
                 auth.anyRequest().authenticated()

@@ -83,7 +83,7 @@ class CompanyService(
             Company(
                 id = nextId, name = req.name, email = req.email,
                 password = passwordEncoder.encode(req.password),
-                phone = req.phone, ip = req.ip,
+                phone = req.phone,
                 monitoringId = monitoringId, collectorUrl = albDnsName
             )
         )
@@ -189,7 +189,16 @@ class CompanyService(
         |          company_id: ${monitoringId}
         |        annotations:
         |          summary: "CPU 과부하 감지"
-        |          description: "CPU 사용률이 80%를 초과했습니다."
+        |          description: "서버의 CPU 사용량이 80%를 초과했습니다."
+        |      - alert: HighMemoryUsage
+        |        expr: system_memory_usage > 85
+        |        for: 30s
+        |        labels:
+        |          severity: critical
+        |          company_id: ${monitoringId}
+        |        annotations:
+        |          summary: "메모리 과부하 감지"
+        |          description: "서버의 메모리 사용량이 85%를 초과했습니다."
         |      - alert: HighDiskUsage
         |        expr: system_disk_usage > 90
         |        for: 30s
@@ -198,7 +207,16 @@ class CompanyService(
         |          company_id: ${monitoringId}
         |        annotations:
         |          summary: "디스크 용량 부족 감지"
-        |          description: "디스크 사용량이 90%를 초과했습니다."
+        |          description: "서버의 디스크 사용량이 90%를 초과했습니다."
+        |      - alert: HighNetworkTraffic
+        |        expr: rate(system_network_rx_bytes[1m]) + rate(system_network_tx_bytes[1m]) > 10485760
+        |        for: 30s
+        |        labels:
+        |          severity: warning
+        |          company_id: ${monitoringId}
+        |        annotations:
+        |          summary: "네트워크 트래픽 급증 감지"
+        |          description: "서버의 네트워크 트래픽이 임계치(10MB/s)를 초과했습니다."
         |EOF
         |
         |cat << 'EOF' > otel-config.yaml

@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.*
 @CrossOrigin("*")
 class DashboardController(
     private val monitoringService: MonitoringService,
+    private val anomalyService: AnomalyService,
+    private val predictionService: PredictionService,
     private val aiService: AiService
 ) {
     @GetMapping("/container/{companyId}")
@@ -17,8 +19,20 @@ class DashboardController(
         ApiResponse(true, "200", "성공", containers = monitoringService.getContainerList(companyId))
 
     @GetMapping("/{companyId}/host")
-    fun host(@PathVariable companyId: Long) =
-        ApiResponse(true, "200", "성공", result = monitoringService.getHostMetrics(companyId))
+    fun host(@PathVariable companyId: Long, @RequestParam(required = false) hostName: String?) =
+        ApiResponse(true, "200", "성공", result = monitoringService.getHostMetrics(companyId, hostName))
+
+    @GetMapping("/{companyId}/hosts")
+    fun hosts(@PathVariable companyId: Long) =
+        ResponseEntity.ok(monitoringService.getDiscoveredHosts(companyId))
+
+    @GetMapping("/{companyId}/anomaly")
+    fun anomaly(@PathVariable companyId: Long, @RequestParam(required = false) hostName: String?) =
+        ResponseEntity.ok(anomalyService.detect(companyId, hostName))
+
+    @GetMapping("/{companyId}/prediction")
+    fun prediction(@PathVariable companyId: Long, @RequestParam(required = false) hostName: String?) =
+        ResponseEntity.ok(predictionService.predict(companyId, hostName))
 
     @GetMapping("/{companyId}/container/{containerName}/metrics")
     fun containerMetrics(@PathVariable companyId: Long, @PathVariable containerName: String) =
