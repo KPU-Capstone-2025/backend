@@ -59,6 +59,33 @@ class DashboardController(
         return ApiResponse(true, "200", "성공", result = result)
     }
 
+    @GetMapping("/{companyId}/alerts/daily")
+    fun dailyAlertSummary(
+        @PathVariable companyId: Long,
+        @RequestParam date: String
+    ): ResponseEntity<Map<String, Any>> {
+        val alerts = monitoringService.getAlertsByDate(companyId, date)
+        val logs   = monitoringService.getLogsByDateRange(companyId, date)
+        val fmt    = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+
+        val alertText = if (alerts.isEmpty()) "임계치 초과 알람 없음"
+            else alerts.joinToString("\n") { "[${it.severity}] ${it.alertName}: ${it.description}" }
+        val logText = if (logs.isEmpty()) "ERROR/WARN 로그 없음"
+            else logs.take(30).joinToString("\n") { "[${it.severity}] ${it.body}" }
+
+        val summary = aiService.getAnalysisFromGPT(
+            "$date 서버 위험 로그 요약 분석",
+            "=== 알람 내역 ===\n$alertText\n\n=== ERROR/WARN 로그 ===\n$logText\n\n위 내용을 바탕으로 해당 날짜의 서버 상태를 요약하고 주요 문제와 조치 방안을 알려주세요."
+        )
+
+        return ResponseEntity.ok(mapOf(
+            "date"      to date,
+            "alerts"    to alerts.map { mapOf("alertName" to it.alertName, "severity" to it.severity, "description" to it.description, "time" to it.createdAt.format(fmt)) },
+            "errorLogs" to logs.take(10).map { mapOf("severity" to it.severity, "body" to it.body) },
+            "summary"   to summary
+        ))
+    }
+
     @PostMapping("/logs/analyze")
     fun analyzeLog(@RequestBody request: Map<String, String>): ResponseEntity<Map<String, String>> {
         val logContent = request["logContent"] ?: return ResponseEntity.badRequest().build()

@@ -32,41 +32,61 @@ class ChatService(
         } else {
             containers.joinToString("\n") {
                 val cMetrics = monitoringService.getContainerMetrics(company.id, it.containerId)
-                "- ${it.containerId}: CPU ${cMetrics.cpuUsage}%, 메모리 ${cMetrics.memoryUsage}MB"
+                "- ${it.containerId}: CPU ${String.format("%.1f", cMetrics.cpuUsage)}%, 메모리 ${String.format("%.1f", cMetrics.memoryUsage)}%"
             }
         }
 
         val recentAlerts = alertRepository.findTop5ByMonitoringIdOrderByCreatedAtDesc(monitoringId)
         val alertContext = if (recentAlerts.isEmpty()) {
-            "최근 발생한 장애 없음"
+            "최근 발생한 임계치 초과 알람 없음"
         } else {
-            recentAlerts.joinToString("\n") { "[장애] ${it.alertName}: ${it.description}" }
+            recentAlerts.joinToString("\n") { "[${it.severity}] ${it.alertName} (${it.createdAt.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))}): ${it.description}" }
         }
 
-        val recentLogs = monitoringService.getLogs(company.id, null, "ERROR", null, 10)
+        val recentLogs = monitoringService.getLogs(company.id, null, null, null, 50)
+        val errorLogs = recentLogs.filter { it.severity == "ERROR" || it.severity == "WARN" }
         val logContext = if (recentLogs.isEmpty()) {
-            "최근 에러 로그 없음"
+            "최근 수집된 로그 없음"
         } else {
-            recentLogs.joinToString("\n") { "[${it.timestamp}] ${it.body}" }
+            val errorPart = if (errorLogs.isNotEmpty()) "=== ERROR/WARN 로그 (${errorLogs.size}건) ===\n" + errorLogs.take(20).joinToString("\n") { "[${it.severity}] ${it.body}" } else "ERROR/WARN 로그 없음"
+            val infoPart  = "=== 최근 INFO 로그 (참고용) ===\n" + recentLogs.filter { it.severity == "INFO" }.take(10).joinToString("\n") { "[INFO] ${it.body}" }
+            "$errorPart\n\n$infoPart"
         }
 
         val history = chatMessageRepository
             .findTop10ByMonitoringIdOrderByCreatedAtDesc(monitoringId)
-            .take(4)
+            .take(6)
             .reversed()
 
         val messages = mutableListOf<dev.langchain4j.data.message.ChatMessage>()
         messages.add(SystemMessage("""
-            당신은 기업 [$monitoringId] 전용 서버 관리 비서입니다.
-            현재 서버 상태: CPU ${metrics.cpuUsage}%, 메모리 ${metrics.memoryUsage}%
-            [컨테이너 상세]
+            당신은 기업 [$monitoringId] 전용 서버 관리 AI 비서입니다.
+            실시간 서버 데이터를 기반으로 전문적이고 상세한 답변을 제공합니다.
+
+            ═══ 현재 서버 상태 (실시간) ═══
+            - CPU: ${String.format("%.1f", metrics.cpuUsage)}%
+            - 메모리: ${String.format("%.1f", metrics.memoryUsage)}%
+            - 디스크: ${String.format("%.1f", metrics.diskUsage)}%
+            - 네트워크: ${String.format("%.1f", metrics.networkTraffic)} KB/s
+            - 전체 상태: ${metrics.status}
+
+            ═══ 실행 중인 컨테이너 ═══
             $containerDetails
-            [최근 시스템 알람]
+
+            ═══ 최근 임계치 초과 알람 (Prometheus Alertmanager) ═══
             $alertContext
-            [최근 에러 로그 내역]
+
+            ═══ 실제 수집된 시스템 로그 (Loki, 최신순) ═══
             $logContext
 
-            위 데이터를 바탕으로 질문에 정확하게 답하세요.
+            ═══ 답변 원칙 ═══
+            1. 위 실제 데이터를 반드시 인용하며 답변하세요.
+            2. 로그/알람 관련 질문은 위 데이터에서 구체적인 내용을 찾아 답변하세요.
+            3. 특정 날짜의 로그를 물어보면 현재 보유한 최신 로그 기반으로 답변하세요.
+            4. 문제 예측 질문에는: 현재 수치 → 위험 징후 → 예상 문제 → 구체적 조치 방안 순으로 답변하세요.
+            5. 답변은 항목별로 구분하고, 수치를 적극 인용하여 근거를 명확히 하세요.
+            6. 조치 방안은 실제 실행 가능한 명령어나 설정 변경을 포함하여 구체적으로 제시하세요.
+            7. 모호하게 "확인이 필요합니다"라는 답변 금지 - 가용한 데이터로 최대한 분석하세요.
         """.trimIndent()))
 
         history.forEach { msg ->

@@ -58,10 +58,14 @@ class MonitoringService(
         val monId = companyRepository.findById(companyId).orElse(null)?.monitoringId
             ?: return ResourceMetrics(status = "NOT_FOUND", cpuUsage = 0.0, memoryUsage = 0.0, diskUsage = 0.0, networkTraffic = 0.0)
 
+        val memBytes = querySingleValue("container_memory_usage_bytes{container_name=\"$containerName\"}", monId) ?: 0.0
+        val totalBytes = querySingleValue("system_memory_total_bytes", monId) ?: 0.0
+        val memPct = if (totalBytes > 0) (memBytes / totalBytes) * 100.0 else 0.0
+
         return ResourceMetrics(
             status = "RUNNING",
             cpuUsage = querySingleValue("rate(container_cpu_usage_seconds_total{container_name=\"$containerName\"}[1m]) * 100", monId) ?: 0.0,
-            memoryUsage = querySingleValue("container_memory_usage_bytes{container_name=\"$containerName\"}", monId) ?: 0.0,
+            memoryUsage = memPct,
             diskUsage = 0.0,
             networkTraffic = 0.0
         )
@@ -76,7 +80,7 @@ class MonitoringService(
         if (!keyword.isNullOrBlank()) logQuery += " |= \"(?i)$keyword\""
 
         val uri = UriComponentsBuilder.fromUriString("http://$albDnsName/loki/api/v1/query_range")
-            .queryParam("query", logQuery).queryParam("limit", limit).build().toUri()
+            .queryParam("query", encodeQuery(logQuery)).queryParam("limit", limit).build(true).toUri()
 
         return try {
             val headers = HttpHeaders().apply { set("X-Server-Group", monId) }
@@ -175,6 +179,7 @@ class MonitoringService(
         val hostDiskPts = queryRange("system_disk_usage",       monId, epochStart, epochEnd, step)
         val hostRxPts   = queryRange("rate(system_network_rx_bytes[1h])", monId, epochStart, epochEnd, step)
         val hostTxPts   = queryRange("rate(system_network_tx_bytes[1h])", monId, epochStart, epochEnd, step)
+        val totalMemBytes = querySingleValue("system_memory_total_bytes", monId) ?: 0.0
 
         // ── 컨테이너 목록 조회 후 메트릭 범위 쿼리 ──────────────────
         val containers = getContainerList(companyId)
@@ -215,7 +220,7 @@ class MonitoringService(
         val days = allDates.map { date ->
             // 호스트
             val cpuVals  = pointsForDay(hostCpuPts,  date)
-            val memVals  = pointsForDay(hostMemPts,  date).map { it / 1_048_576.0 }  // bytes → MB
+            val memVals  = pointsForDay(hostMemPts,  date)  // already %
             val diskVals = pointsForDay(hostDiskPts, date)
             val rxVals   = pointsForDay(hostRxPts,   date)
             val txVals   = pointsForDay(hostTxPts,   date)
@@ -237,7 +242,7 @@ class MonitoringService(
             val containerMetrics = containerSeries.mapNotNull { (id, series) ->
                 val (cpuS, memS, netS) = series
                 val cCpu = pointsForDay(cpuS, date)
-                val cMem = pointsForDay(memS, date).map { it / 1_048_576.0 }
+                val cMem = pointsForDay(memS, date).map { if (totalMemBytes > 0) (it / totalMemBytes) * 100.0 else 0.0 }
                 val cNet = pointsForDay(netS, date).map { it / 1024.0 }
                 if (cCpu.isEmpty() && cMem.isEmpty()) return@mapNotNull null
                 ContainerDailyMetrics(
@@ -274,7 +279,7 @@ class MonitoringService(
     ): List<Pair<Long, Double>> {
         val uri = UriComponentsBuilder
             .fromUriString("http://$albDnsName/api/v1/query_range")
-            .queryParam("query", query)
+            .queryParam("query", encodeQuery(query))
             .queryParam("start", start)
             .queryParam("end",   end)
             .queryParam("step",  step)
@@ -343,9 +348,59 @@ class MonitoringService(
         }
     }
 
+    fun getAlertsByDate(companyId: Long, date: String): List<com.kpu.backend.domain.alert.AlertLog> {
+        val company = companyRepository.findById(companyId).orElse(null) ?: return emptyList()
+        val dayStart = java.time.LocalDate.parse(date).atStartOfDay()
+        return alertRepository.findByMonitoringIdAndCreatedAtBetween(company.monitoringId, dayStart, dayStart.plusDays(1))
+    }
+
+    fun getLogsByDateRange(companyId: Long, date: String): List<LogEntry> {
+        val company = companyRepository.findById(companyId).orElse(null) ?: return emptyList()
+        val monId = company.monitoringId
+        val dayStart = java.time.LocalDate.parse(date)
+        val startNs = dayStart.atStartOfDay().toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L
+        val endNs   = dayStart.plusDays(1).atStartOfDay().toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L
+
+        val uri = UriComponentsBuilder.fromUriString("http://$albDnsName/loki/api/v1/query_range")
+            .queryParam("query", encodeQuery("{job=\"metric-agent\"}"))
+            .queryParam("start", startNs)
+            .queryParam("end",   endNs)
+            .queryParam("limit", 200)
+            .build(true).toUri()
+
+        return try {
+            val headers = HttpHeaders().apply { set("X-Server-Group", monId) }
+            val res = restTemplate.exchange(uri, HttpMethod.GET, HttpEntity<Unit>(headers), Map::class.java)
+            val result = (res.body?.get("data") as? Map<*, *>)?.get("result") as? List<Map<*, *>> ?: emptyList()
+            val logs = mutableListOf<LogEntry>()
+            for (stream in result) {
+                val values = stream["values"] as? List<List<String>> ?: continue
+                for (v in values) {
+                    val raw = v[1]; var body = raw; var sev = "INFO"
+                    try {
+                        val node = mapper.readTree(raw)
+                        body = node.get("body")?.asText() ?: raw
+                        sev = when {
+                            body.contains("error", true) || body.contains("fail", true) || body.contains("critical", true) -> "ERROR"
+                            body.contains("warn", true) -> "WARN"
+                            else -> node.get("severity")?.asText()?.uppercase() ?: "INFO"
+                        }
+                    } catch (e: Exception) {
+                        sev = if (raw.contains("error", true)) "ERROR" else if (raw.contains("warn", true)) "WARN" else "INFO"
+                    }
+                    logs.add(LogEntry(v[0], sev, body, "system", "host", null, monId, raw))
+                }
+            }
+            logs.filter { it.severity == "ERROR" || it.severity == "WARN" }.sortedByDescending { it.timestamp }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    private fun encodeQuery(query: String): String =
+        java.net.URLEncoder.encode(query, java.nio.charset.StandardCharsets.UTF_8)
+
     private fun queryPrometheus(query: String, monitoringId: String): List<Map<String, Any>> {
         val uri = UriComponentsBuilder.fromUriString("http://$albDnsName/api/v1/query")
-            .queryParam("query", query).build().toUri()
+            .queryParam("query", encodeQuery(query)).build(true).toUri()
         val headers = HttpHeaders().apply { set("X-Server-Group", monitoringId) }
         return try {
             val res = restTemplate.exchange(uri, HttpMethod.GET, HttpEntity<Unit>(headers), Map::class.java)
