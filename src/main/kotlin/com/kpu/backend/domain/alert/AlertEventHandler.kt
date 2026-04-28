@@ -25,10 +25,11 @@ class AlertEventHandler(
                 aiAnalysis = aiAnalysis
             )
         )
+        val serverInfo = if (!event.hostName.isNullOrBlank()) " [서버: ${event.hostName}]" else ""
         notificationService.sendAlert(
             event.targetEmail,
-            "[긴급] 장애 발생: ${event.alertName}",
-            "분석: $aiAnalysis"
+            "[긴급] 장애 발생$serverInfo: ${event.alertName}",
+            "서버: ${event.hostName ?: "전체"}\n\n분석: $aiAnalysis"
         )
     }
 }

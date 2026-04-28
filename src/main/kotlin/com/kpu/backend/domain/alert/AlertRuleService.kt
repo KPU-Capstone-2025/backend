@@ -30,49 +30,53 @@ class AlertRuleService(
         val instanceId = findMonitoringInstanceId(resolvedMonitoringId)
             ?: throw IllegalStateException("모니터링 서버를 찾을 수 없습니다. monitoringId=$resolvedMonitoringId")
 
+        val hostFilter = if (!request.hostName.isNullOrBlank()) "{host_name=\"${request.hostName}\"}" else ""
+        val suffix = if (!request.hostName.isNullOrBlank()) "_${request.hostName.replace("-", "_")}" else ""
+        val serverDesc = if (!request.hostName.isNullOrBlank()) "[${request.hostName}] " else ""
+
         val yaml = """
             |groups:
-            |  - name: rules
+            |  - name: rules$suffix
             |    rules:
-            |      - alert: HighCpuUsage
-            |        expr: system_cpu_usage > ${request.cpuThreshold}
+            |      - alert: HighCpuUsage$suffix
+            |        expr: system_cpu_usage$hostFilter > ${request.cpuThreshold}
             |        for: ${request.durationSeconds}s
             |        labels:
             |          severity: critical
             |          company_id: $resolvedMonitoringId
             |        annotations:
-            |          summary: CPU 과부하 감지
-            |          description: 서버의 CPU 사용량이 ${request.cpuThreshold}%를 초과했습니다.
+            |          summary: ${serverDesc}CPU 과부하 감지
+            |          description: ${serverDesc}서버의 CPU 사용량이 ${request.cpuThreshold}%를 초과했습니다.
             |
-            |      - alert: HighMemoryUsage
-            |        expr: system_memory_usage > ${request.memoryThreshold}
+            |      - alert: HighMemoryUsage$suffix
+            |        expr: system_memory_usage$hostFilter > ${request.memoryThreshold}
             |        for: ${request.durationSeconds}s
             |        labels:
             |          severity: critical
             |          company_id: $resolvedMonitoringId
             |        annotations:
-            |          summary: 메모리 과부하 감지
-            |          description: 서버의 메모리 사용량이 ${request.memoryThreshold}%를 초과했습니다.
+            |          summary: ${serverDesc}메모리 과부하 감지
+            |          description: ${serverDesc}서버의 메모리 사용량이 ${request.memoryThreshold}%를 초과했습니다.
             |
-            |      - alert: HighDiskUsage
-            |        expr: system_disk_usage > ${request.diskThreshold}
+            |      - alert: HighDiskUsage$suffix
+            |        expr: system_disk_usage$hostFilter > ${request.diskThreshold}
             |        for: ${request.durationSeconds}s
             |        labels:
             |          severity: critical
             |          company_id: $resolvedMonitoringId
             |        annotations:
-            |          summary: 디스크 용량 부족 감지
-            |          description: 서버의 디스크 사용량이 ${request.diskThreshold}%를 초과했습니다.
+            |          summary: ${serverDesc}디스크 용량 부족 감지
+            |          description: ${serverDesc}서버의 디스크 사용량이 ${request.diskThreshold}%를 초과했습니다.
             |
-            |      - alert: HighNetworkTraffic
-            |        expr: rate(system_network_rx_bytes[1m]) + rate(system_network_tx_bytes[1m]) > ${request.networkThreshold}
+            |      - alert: HighNetworkTraffic$suffix
+            |        expr: rate(system_network_rx_bytes$hostFilter[1m]) + rate(system_network_tx_bytes$hostFilter[1m]) > ${request.networkThreshold}
             |        for: ${request.durationSeconds}s
             |        labels:
             |          severity: warning
             |          company_id: $resolvedMonitoringId
             |        annotations:
-            |          summary: 네트워크 트래픽 급증 감지
-            |          description: 서버의 네트워크 트래픽이 임계치(${request.networkThreshold} bytes/s)를 초과했습니다.
+            |          summary: ${serverDesc}네트워크 트래픽 급증 감지
+            |          description: ${serverDesc}서버의 네트워크 트래픽이 임계치(${request.networkThreshold} bytes/s)를 초과했습니다.
         """.trimMargin()
 
         val command = "cat << 'EOF' > /opt/monitoring/alert.rules.yml\n$yaml\nEOF\n(docker kill -s SIGHUP prometheus || docker restart prometheus)"

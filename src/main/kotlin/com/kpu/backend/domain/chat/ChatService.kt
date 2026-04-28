@@ -24,6 +24,7 @@ class ChatService(
         val company = companyRepository.findByMonitoringId(monitoringId)
             ?: throw IllegalArgumentException("유효하지 않은 모니터링 ID입니다.")
 
+        val discoveredHosts = monitoringService.getDiscoveredHosts(company.id)
         val metrics = monitoringService.getHostMetrics(company.id)
         val containers = monitoringService.getContainerList(company.id)
 
@@ -33,6 +34,17 @@ class ChatService(
             containers.joinToString("\n") {
                 val cMetrics = monitoringService.getContainerMetrics(company.id, it.containerId)
                 "- ${it.containerId}: CPU ${String.format("%.1f", cMetrics.cpuUsage)}%, 메모리 ${String.format("%.1f", cMetrics.memoryUsage)}%"
+            }
+        }
+
+        val serverDetails = if (discoveredHosts.isEmpty()) {
+            "등록된 서버 없음"
+        } else {
+            discoveredHosts.joinToString("\n") { hostName ->
+                try {
+                    val m = monitoringService.getHostMetrics(company.id, hostName)
+                    "- $hostName: CPU ${String.format("%.1f", m.cpuUsage)}%, 메모리 ${String.format("%.1f", m.memoryUsage)}%, 디스크 ${String.format("%.1f", m.diskUsage)}%, 상태: ${m.status}"
+                } catch (e: Exception) { "- $hostName: 데이터 수집 중" }
             }
         }
 
@@ -62,13 +74,16 @@ class ChatService(
         messages.add(SystemMessage("""
             당신은 기업 [$monitoringId] 전용 서버 관리 AI 비서입니다.
             실시간 서버 데이터를 기반으로 전문적이고 상세한 답변을 제공합니다.
+            현재 총 ${discoveredHosts.size}개의 서버가 모니터링 중입니다: ${discoveredHosts.joinToString(", ")}
 
-            ═══ 현재 서버 상태 (실시간) ═══
+            ═══ 전체 서버 현황 ═══
+            $serverDetails
+
+            ═══ 전체 집계 상태 ═══
             - CPU: ${String.format("%.1f", metrics.cpuUsage)}%
             - 메모리: ${String.format("%.1f", metrics.memoryUsage)}%
             - 디스크: ${String.format("%.1f", metrics.diskUsage)}%
             - 네트워크: ${String.format("%.1f", metrics.networkTraffic)} KB/s
-            - 전체 상태: ${metrics.status}
 
             ═══ 실행 중인 컨테이너 ═══
             $containerDetails

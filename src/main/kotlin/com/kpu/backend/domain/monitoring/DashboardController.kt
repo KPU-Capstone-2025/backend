@@ -43,8 +43,9 @@ class DashboardController(
         @PathVariable companyId: Long,
         @RequestParam(required = false) severity: String?,
         @RequestParam(required = false) keyword: String?,
-        @RequestParam(defaultValue = "100") limit: Int
-    ) = ApiResponse(true, "200", "성공", result = monitoringService.getLogs(companyId, null, severity, keyword, limit))
+        @RequestParam(defaultValue = "100") limit: Int,
+        @RequestParam(required = false) hostName: String?
+    ) = ApiResponse(true, "200", "성공", result = monitoringService.getLogs(companyId, null, severity, keyword, limit, hostName))
 
     /**
      * 월간 일별 리소스 집계
@@ -72,6 +73,21 @@ class DashboardController(
             hostName    = hostName
         )
         return ApiResponse(true, "200", "성공", result = result)
+    }
+
+    @GetMapping("/{companyId}/alerts/daily/raw")
+    fun dailyAlertRaw(
+        @PathVariable companyId: Long,
+        @RequestParam date: String
+    ): ResponseEntity<Map<String, Any>> {
+        val alerts = monitoringService.getAlertsByDate(companyId, date)
+        val logs   = monitoringService.getLogsByDateRange(companyId, date)
+        val fmt    = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+        return ResponseEntity.ok(mapOf(
+            "date"      to date,
+            "alerts"    to alerts.map { mapOf("alertName" to it.alertName, "severity" to it.severity, "description" to it.description, "time" to it.createdAt.format(fmt)) },
+            "errorLogs" to logs.take(10).map { mapOf("severity" to it.severity, "body" to it.body) }
+        ))
     }
 
     @GetMapping("/{companyId}/alerts/daily")

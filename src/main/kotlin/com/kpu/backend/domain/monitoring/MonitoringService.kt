@@ -46,8 +46,8 @@ class MonitoringService(
             ?: return ResourceMetrics(status = "NOT_FOUND", cpuUsage = 0.0, memoryUsage = 0.0, diskUsage = 0.0, networkTraffic = 0.0)
 
         fun q(metric: String) = if (hostName != null) "$metric{host_name=\"$hostName\"}" else metric
-        val rx = querySingleValue(q("rate(system_network_rx_bytes[1m])"), monId) ?: 0.0
-        val tx = querySingleValue(q("rate(system_network_tx_bytes[1m])"), monId) ?: 0.0
+        val rx = querySingleValue(q("deriv(system_network_rx_bytes[2m])"), monId) ?: 0.0
+        val tx = querySingleValue(q("deriv(system_network_tx_bytes[2m])"), monId) ?: 0.0
 
         return ResourceMetrics(
             status = "STABLE",
@@ -87,11 +87,12 @@ class MonitoringService(
         )
     }
 
-    fun getLogs(companyId: Long, containerName: String?, severity: String?, keyword: String?, limit: Int): List<LogEntry> {
+    fun getLogs(companyId: Long, containerName: String?, severity: String?, keyword: String?, limit: Int, hostName: String? = null): List<LogEntry> {
         val company = companyRepository.findById(companyId).orElse(null) ?: return emptyList()
         val monId = company.monitoringId
 
-        var logQuery = "{job=\"metric-agent\"}"
+        val hostFilter = if (!hostName.isNullOrBlank()) ",instance=\"$hostName\"" else ""
+        var logQuery = "{job=\"metric-agent\"$hostFilter}"
         if (!containerName.isNullOrBlank() && containerName != "all") logQuery += " |= \"$containerName\""
         if (!keyword.isNullOrBlank()) logQuery += " |= \"(?i)$keyword\""
 
@@ -105,6 +106,8 @@ class MonitoringService(
 
             val logs = mutableListOf<LogEntry>()
             for (stream in result) {
+                val streamLabels = stream["stream"] as? Map<*, *> ?: emptyMap<Any, Any>()
+                val streamInstance = streamLabels["instance"]?.toString()
                 val values = stream["values"] as? List<List<String>> ?: continue
                 for (v in values) {
                     val raw = v[1]
@@ -124,7 +127,7 @@ class MonitoringService(
                         detectedSev = if (raw.contains("error", true)) "ERROR" else if (raw.contains("warn", true)) "WARN" else "INFO"
                     }
 
-                    logs.add(LogEntry(v[0], detectedSev, body, "Docker", "system", containerName, monId, raw))
+                    logs.add(LogEntry(v[0], detectedSev, body, "Docker", "system", containerName, streamInstance, raw))
                 }
             }
 
@@ -195,8 +198,8 @@ class MonitoringService(
         val hostCpuPts  = queryRange(hq("system_cpu_usage"),        monId, epochStart, epochEnd, step)
         val hostMemPts  = queryRange(hq("system_memory_usage"),     monId, epochStart, epochEnd, step)
         val hostDiskPts = queryRange(hq("system_disk_usage"),       monId, epochStart, epochEnd, step)
-        val hostRxPts   = queryRange(hq("rate(system_network_rx_bytes[1h])"), monId, epochStart, epochEnd, step)
-        val hostTxPts   = queryRange(hq("rate(system_network_tx_bytes[1h])"), monId, epochStart, epochEnd, step)
+        val hostRxPts   = queryRange(hq("deriv(system_network_rx_bytes[2h])"), monId, epochStart, epochEnd, step)
+        val hostTxPts   = queryRange(hq("deriv(system_network_tx_bytes[2h])"), monId, epochStart, epochEnd, step)
         val totalMemBytes = querySingleValue(hq("system_memory_total_bytes"), monId) ?: 0.0
 
         // ── 컨테이너 목록 조회 후 메트릭 범위 쿼리 ──────────────────

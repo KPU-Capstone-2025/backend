@@ -15,15 +15,19 @@ class AlertService(
             val labels = alert["labels"] as? Map<String, String> ?: emptyMap()
             val annotations = alert["annotations"] as? Map<String, String> ?: emptyMap()
             val monitoringId = labels["company_id"] ?: "unknown"
+            val hostName = labels["host_name"]
             val company = companyRepository.findByMonitoringId(monitoringId)
+            val baseDesc = annotations["description"] ?: "No description"
+            val fullDesc = if (!hostName.isNullOrBlank()) "[$hostName] $baseDesc" else baseDesc
             eventPublisher.publishEvent(
                 AlertReceivedEvent(
                     monitoringId = monitoringId,
                     alertName = labels["alertname"] ?: "Unknown",
                     severity = labels["severity"] ?: "info",
-                    description = annotations["description"] ?: "No description",
+                    description = fullDesc,
                     targetEmail = company?.email ?: "admin@kpu.ac.kr",
-                    companyName = company?.name ?: "System"
+                    companyName = company?.name ?: "System",
+                    hostName = hostName
                 )
             )
         }

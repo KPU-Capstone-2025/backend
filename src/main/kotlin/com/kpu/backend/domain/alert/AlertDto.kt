@@ -3,6 +3,7 @@ package com.kpu.backend.domain.alert
 data class RuleUpdateRequest(
     val companyId: String? = null,
     val monitoringId: String? = null,
+    val hostName: String? = null,
     val cpuThreshold: Int,
     val memoryThreshold: Int,
     val diskThreshold: Int,
@@ -16,5 +17,6 @@ data class AlertReceivedEvent(
     val severity: String,
     val description: String,
     val targetEmail: String,
-    val companyName: String
+    val companyName: String,
+    val hostName: String? = null
 )
