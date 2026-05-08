@@ -3,6 +3,7 @@ package com.kpu.backend.domain.company
 import com.kpu.backend.config.JwtUtil
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.core.io.ClassPathResource
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -36,8 +37,8 @@ class CompanyService(
         val monitoringId = "mon-" + UUID.randomUUID().toString().take(8)
 
         if (activeProfile == "local") {
-            log.info("[로컬 모드] AWS 인프라 자동 생성 로직을 건너뜁니다. DB에만 저장됩니다. monitoringId=$monitoringId")
-            return saveCompany(req, monitoringId)
+            log.info("[로컬 모드] AWS 인프라 자동 생성 로직을 건너뜁니다. monitoringId=$monitoringId")
+            return saveCompany(req, monitoringId, ip = "localhost")
         }
 
         val nextId = companyRepository.findMaxId() + 1
@@ -52,7 +53,7 @@ class CompanyService(
                 .iamInstanceProfile(IamInstanceProfileSpecification.builder().name("Monitoring-EC2-Role").build())
                 .tagSpecifications(
                     TagSpecification.builder().resourceType(ResourceType.INSTANCE).tags(
-                        Tag.builder().key("Name").value("${req.name}-Server").build(),
+                        Tag.builder().key("Name").value("${req.name}-Monitoring").build(),
                         Tag.builder().key("MonitoringId").value(monitoringId).build(),
                         Tag.builder().key("Role").value("Monitoring").build()
                     ).build()
@@ -61,30 +62,30 @@ class CompanyService(
             val instanceId = ec2Client.runInstances(runReq).instances().first().instanceId()
             ec2Client.waiter().waitUntilInstanceRunning { it.instanceIds(listOf(instanceId)) }
 
-            val promTg = createTargetGroup(monitoringId + "-prom", 9090, "/-/healthy", instanceId)
-            val lokiTg = createTargetGroup(monitoringId + "-loki", 3100, "/ready", instanceId)
-            val otelTg = createTargetGroup(monitoringId + "-otel", 4318, "/", instanceId)
+            val privateIp = ec2Client.describeInstances(
+                DescribeInstancesRequest.builder().instanceIds(instanceId).build()
+            ).reservations().first().instances().first().privateIpAddress()
 
-            val basePrio = (nextId * 10).toInt()
-            createListenerRule(basePrio + 1, monitoringId, "/api/v1/*", promTg)
-            createListenerRule(basePrio + 2, monitoringId, "/loki/*", lokiTg)
-            createListenerRule(basePrio + 3, monitoringId, "*", otelTg)
+            val otelTg = createTargetGroup(monitoringId, 4318, "/", instanceId)
+            createListenerRule((nextId * 10).toInt(), monitoringId, otelTg)
+
+            return saveCompany(req, monitoringId, ip = privateIp)
         } catch (e: Exception) {
             throw RuntimeException("인프라 구성 실패: ${e.message}", e)
         }
-
-        return saveCompany(req, monitoringId)
     }
 
     @Transactional
-    fun saveCompany(req: CompanyRegisterRequest, monitoringId: String): Company {
+    fun saveCompany(req: CompanyRegisterRequest, monitoringId: String, ip: String? = null): Company {
         val nextId = companyRepository.findMaxId() + 1
         return companyRepository.save(
             Company(
                 id = nextId, name = req.name, email = req.email,
                 password = passwordEncoder.encode(req.password),
                 phone = req.phone,
-                monitoringId = monitoringId, collectorUrl = albDnsName
+                monitoringId = monitoringId,
+                collectorUrl = albDnsName,
+                ip = ip
             )
         )
     }
@@ -119,138 +120,53 @@ class CompanyService(
         return tgArn
     }
 
-    private fun createListenerRule(priority: Int, monitoringId: String, path: String, tgArn: String) {
-        val conditions = mutableListOf<RuleCondition>()
-        conditions.add(
-            RuleCondition.builder().field("http-header")
-                .httpHeaderConfig { it.httpHeaderName("X-Server-Group").values(monitoringId) }
-                .build()
-        )
-        if (path != "*") {
-            conditions.add(
-                RuleCondition.builder().field("path-pattern")
-                    .pathPatternConfig { it.values(path) }
-                    .build()
-            )
-        }
-
+    private fun createListenerRule(priority: Int, monitoringId: String, tgArn: String) {
         albClient.createRule(
             CreateRuleRequest.builder()
-                .listenerArn(listenerArn).priority(priority).conditions(conditions)
+                .listenerArn(listenerArn).priority(priority)
+                .conditions(
+                    RuleCondition.builder().field("host-header")
+                        .hostHeaderConfig { it.values("data") }.build(),
+                    RuleCondition.builder().field("http-header")
+                        .httpHeaderConfig { it.httpHeaderName("X-Server-Group").values(monitoringId) }.build()
+                )
                 .actions(Action.builder().type(ActionTypeEnum.FORWARD).targetGroupArn(tgArn).build())
                 .build()
         )
     }
 
-    private fun buildInstallScript(monitoringId: String): String = """
-        |#!/bin/bash
-        |mkdir -p /opt/monitoring
-        |cd /opt/monitoring
-        |
-        |cat << 'EOF' > prometheus.yml
-        |global:
-        |  scrape_interval: 5s
-        |  evaluation_interval: 10s
-        |rule_files:
-        |  - /etc/prometheus/alert.rules.yml
-        |alerting:
-        |  alertmanagers:
-        |    - static_configs:
-        |        - targets: ['localhost:9093']
-        |scrape_configs:
-        |  - job_name: 'otel-collector'
-        |    static_configs:
-        |      - targets: ['localhost:8889']
-        |    honor_labels: true
-        |EOF
-        |
-        |cat << 'EOF' > alertmanager.yml
-        |route:
-        |  receiver: backend-webhook
-        |  group_wait: 10s
-        |  group_interval: 30s
-        |  repeat_interval: 2m
-        |receivers:
-        |  - name: backend-webhook
-        |    webhook_configs:
-        |      - url: "${backendUrl}/api/alerts/webhook/${monitoringId}"
-        |        send_resolved: true
-        |EOF
-        |
-        |cat << 'EOF' > alert.rules.yml
-        |groups:
-        |  - name: rules
-        |    rules:
-        |      - alert: HighCpuUsage
-        |        expr: system_cpu_usage > 80
-        |        for: 30s
-        |        labels:
-        |          severity: critical
-        |          company_id: ${monitoringId}
-        |        annotations:
-        |          summary: "CPU 과부하 감지"
-        |          description: "서버의 CPU 사용량이 80%를 초과했습니다."
-        |      - alert: HighMemoryUsage
-        |        expr: system_memory_usage > 85
-        |        for: 30s
-        |        labels:
-        |          severity: critical
-        |          company_id: ${monitoringId}
-        |        annotations:
-        |          summary: "메모리 과부하 감지"
-        |          description: "서버의 메모리 사용량이 85%를 초과했습니다."
-        |      - alert: HighDiskUsage
-        |        expr: system_disk_usage > 90
-        |        for: 30s
-        |        labels:
-        |          severity: critical
-        |          company_id: ${monitoringId}
-        |        annotations:
-        |          summary: "디스크 용량 부족 감지"
-        |          description: "서버의 디스크 사용량이 90%를 초과했습니다."
-        |      - alert: HighNetworkTraffic
-        |        expr: rate(system_network_rx_bytes[1m]) + rate(system_network_tx_bytes[1m]) > 10485760
-        |        for: 30s
-        |        labels:
-        |          severity: warning
-        |          company_id: ${monitoringId}
-        |        annotations:
-        |          summary: "네트워크 트래픽 급증 감지"
-        |          description: "서버의 네트워크 트래픽이 임계치(10MB/s)를 초과했습니다."
-        |EOF
-        |
-        |cat << 'EOF' > otel-config.yaml
-        |receivers:
-        |  otlp:
-        |    protocols:
-        |      http:
-        |        endpoint: "0.0.0.0:4318"
-        |exporters:
-        |  prometheus:
-        |    endpoint: "0.0.0.0:8889"
-        |    resource_to_telemetry_conversion:
-        |      enabled: true
-        |  loki:
-        |    endpoint: "http://localhost:3100/loki/api/v1/push"
-        |    default_labels_enabled:
-        |      exporter: false
-        |      job: true
-        |      instance: true
-        |      level: true
-        |service:
-        |  pipelines:
-        |    metrics:
-        |      receivers: [otlp]
-        |      exporters: [prometheus]
-        |    logs:
-        |      receivers: [otlp]
-        |      exporters: [loki]
-        |EOF
-        |
-        |docker rm -f loki prometheus otel-collector alertmanager || true
-        |docker run -d --name loki --network host grafana/loki:2.9.4
-        |docker run -d --name alertmanager --network host -v /opt/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml prom/alertmanager:v0.27.0 --config.file=/etc/alertmanager/alertmanager.yml
-        |docker run -d --name prometheus --network host -v /opt/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml -v /opt/monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml prom/prometheus:v2.50.0
-        |docker run -d --name otel-collector --network host -v /opt/monitoring/otel-config.yaml:/etc/otel/config.yaml otel/opentelemetry-collector-contrib:0.98.0 --config=/etc/otel/config.yaml
-    """.trimMargin()
+    private fun buildInstallScript(monitoringId: String): String {
+        val prometheus   = readResource("monitoring/prometheus.yml")
+        val alertmanager = readResource("monitoring/alertmanager.yml")
+            .replace("{{BACKEND_URL}}", backendUrl)
+            .replace("{{MONITORING_ID}}", monitoringId)
+        val alertRules   = readResource("monitoring/alert.rules.yml")
+            .replace("{{MONITORING_ID}}", monitoringId)
+        val otelConfig   = readResource("monitoring/otel-config.yaml")
+        val compose      = readResource("monitoring/docker-compose.yml")
+
+        return buildString {
+            appendLine("#!/bin/bash")
+            appendLine("mkdir -p /opt/monitoring")
+            appendLine("cd /opt/monitoring")
+            appendLine()
+            appendFileBlock("prometheus.yml", prometheus)
+            appendFileBlock("alertmanager.yml", alertmanager)
+            appendFileBlock("alert.rules.yml", alertRules)
+            appendFileBlock("otel-config.yaml", otelConfig)
+            appendFileBlock("docker-compose.yml", compose)
+            appendLine("docker compose up -d")
+        }
+    }
+
+    private fun readResource(path: String): String =
+        ClassPathResource(path).inputStream.bufferedReader().readText()
+
+    private fun StringBuilder.appendFileBlock(filename: String, content: String) {
+        appendLine("cat << 'SCRIPT_EOF' > $filename")
+        append(content)
+        if (!content.endsWith("\n")) appendLine()
+        appendLine("SCRIPT_EOF")
+        appendLine()
+    }
 }

@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: monitoring-backend
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+server:
+  port: 8080
+
+aws:
+  vpc:
+    id: ${AWS_VPC_ID}
+  ami:
+    id: ${AWS_AMI_ID}
+  subnet:
+    private:
+      id: ${AWS_SUBNET_PRIVATE_ID}
+  sg:
+    monitoring:
+      id: ${AWS_SG_MONITORING_ID}
+  alb:
+    dns:
+      name: ${AWS_ALB_DNS_NAME}
+    listener:
+      arn: ${AWS_ALB_LISTENER_ARN}
+
+cloud:
+  aws:
+    region:
+      static: ap-northeast-2
+    stack:
+      auto: false
+
+monitoring:
+  backend-url: ${MONITORING_BACKEND_URL}
+  alert-webhook-url: ${MONITORING_BACKEND_URL}
+
+openai:
+  api:
+    key: ${OPENAI_API_KEY}
+    url: https://api.openai.com/v1/chat/completions
+
+langchain4j:
+  open-ai:
+    chat-model:
+      api-key: ${OPENAI_API_KEY}
+      model-name: gpt-3.5-turbo
+      temperature: 0.7
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration-ms: 86400000

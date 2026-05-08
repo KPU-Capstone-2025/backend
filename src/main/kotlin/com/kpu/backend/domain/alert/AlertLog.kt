@@ -12,5 +12,6 @@ class AlertLog(
     val severity: String,
     @Column(columnDefinition = "TEXT") val description: String,
     var aiAnalysis: String? = null,
+    val hostName: String? = null,
     val createdAt: LocalDateTime = LocalDateTime.now()
 )

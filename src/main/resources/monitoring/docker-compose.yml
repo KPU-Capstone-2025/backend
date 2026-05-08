@@ -1,0 +1,30 @@
+version: '3.8'
+services:
+  loki:
+    image: grafana/loki:2.9.4
+    network_mode: host
+    restart: always
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    network_mode: host
+    volumes:
+      - /opt/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    command: --config.file=/etc/alertmanager/alertmanager.yml
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    network_mode: host
+    volumes:
+      - /opt/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - /opt/monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml
+    restart: always
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.98.0
+    network_mode: host
+    volumes:
+      - /opt/monitoring/otel-config.yaml:/etc/otel/config.yaml
+    command: --config=/etc/otel/config.yaml
+    restart: always

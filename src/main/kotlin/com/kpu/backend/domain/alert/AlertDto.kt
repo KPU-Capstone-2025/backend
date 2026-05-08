@@ -10,13 +10,3 @@ data class RuleUpdateRequest(
     val networkThreshold: Long,
     val durationSeconds: Int
 )
-
-data class AlertReceivedEvent(
-    val monitoringId: String,
-    val alertName: String,
-    val severity: String,
-    val description: String,
-    val targetEmail: String,
-    val companyName: String,
-    val hostName: String? = null
-)

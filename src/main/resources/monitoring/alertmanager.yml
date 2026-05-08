@@ -1,0 +1,10 @@
+route:
+  receiver: backend-webhook
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 2m
+receivers:
+  - name: backend-webhook
+    webhook_configs:
+      - url: "{{BACKEND_URL}}/api/alerts/webhook/{{MONITORING_ID}}"
+        send_resolved: true

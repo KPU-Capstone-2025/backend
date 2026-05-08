@@ -47,13 +47,6 @@ class DashboardController(
         @RequestParam(required = false) hostName: String?
     ) = ApiResponse(true, "200", "성공", result = monitoringService.getLogs(companyId, null, severity, keyword, limit, hostName))
 
-    /**
-     * 월간 일별 리소스 집계
-     *
-     * 사용 예:
-     *   GET /api/dashboard/{companyId}/metrics/monthly?year=2026&month=4
-     *   GET /api/dashboard/{companyId}/metrics/monthly?year=2026&startDate=2026-04-01&endDate=2026-04-30
-     */
     @GetMapping("/{companyId}/metrics/monthly")
     fun monthlyMetrics(
         @PathVariable companyId: Long,
@@ -78,9 +71,10 @@ class DashboardController(
     @GetMapping("/{companyId}/alerts/daily/raw")
     fun dailyAlertRaw(
         @PathVariable companyId: Long,
-        @RequestParam date: String
+        @RequestParam date: String,
+        @RequestParam(required = false) hostName: String?
     ): ResponseEntity<Map<String, Any>> {
-        val alerts = monitoringService.getAlertsByDate(companyId, date)
+        val alerts = monitoringService.getAlertsByDate(companyId, date, hostName)
         val logs   = monitoringService.getLogsByDateRange(companyId, date)
         val fmt    = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
         return ResponseEntity.ok(mapOf(
