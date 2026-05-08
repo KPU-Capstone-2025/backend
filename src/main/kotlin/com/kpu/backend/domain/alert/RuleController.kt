@@ -12,4 +12,12 @@ class RuleController(private val alertRuleService: AlertRuleService) {
         alertRuleService.updateRules(request)
         return ResponseEntity.ok().build()
     }
+
+    @GetMapping("/{companyId}")
+    fun getRules(
+        @PathVariable companyId: Long,
+        @RequestParam(required = false) hostName: String?
+    ): ResponseEntity<AlertRuleSetting> {
+        return ResponseEntity.ok(alertRuleService.getRuleSetting(companyId, hostName))
+    }
 }

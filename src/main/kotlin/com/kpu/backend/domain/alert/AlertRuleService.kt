@@ -15,9 +15,15 @@ class AlertRuleService(
     private val ssmClient: SsmClient,
     private val ec2Client: Ec2Client,
     private val companyRepository: CompanyRepository,
+    private val alertRuleSettingRepository: AlertRuleSettingRepository,
     @Value("\${spring.profiles.active:default}") private val activeProfile: String
 ) {
     private val log = LoggerFactory.getLogger(AlertRuleService::class.java)
+
+    fun getRuleSetting(companyId: Long, hostName: String?): AlertRuleSetting {
+        return alertRuleSettingRepository.findByCompanyIdAndHostName(companyId, hostName)
+            ?: AlertRuleSetting(companyId = companyId, hostName = hostName)
+    }
 
     fun updateRules(request: RuleUpdateRequest) {
         val resolvedMonitoringId = resolveMonitoringId(request)
@@ -32,7 +38,7 @@ class AlertRuleService(
 
         val hostFilter = if (!request.hostName.isNullOrBlank()) "{host_name=\"${request.hostName}\"}" else ""
         val suffix = if (!request.hostName.isNullOrBlank()) "_${request.hostName.replace("-", "_")}" else ""
-        val serverDesc = if (!request.hostName.isNullOrBlank()) "[${request.hostName}] " else ""
+        val serverDesc = if (!request.hostName.isNullOrBlank()) "${request.hostName} " else ""
 
         val yaml = """
             |groups:
@@ -93,6 +99,18 @@ class AlertRuleService(
             "Rule update command sent. monitoringId={}, instanceId={}, commandId={}",
             resolvedMonitoringId, instanceId, response.command().commandId()
         )
+
+        val companyId = companyRepository.findByMonitoringId(resolvedMonitoringId)?.id
+        if (companyId != null) {
+            val setting = alertRuleSettingRepository.findByCompanyIdAndHostName(companyId, request.hostName)
+                ?: AlertRuleSetting(companyId = companyId, hostName = request.hostName)
+            setting.cpuThreshold = request.cpuThreshold
+            setting.memoryThreshold = request.memoryThreshold
+            setting.diskThreshold = request.diskThreshold
+            setting.networkThreshold = request.networkThreshold
+            setting.durationSeconds = request.durationSeconds
+            alertRuleSettingRepository.save(setting)
+        }
     }
 
     private fun resolveMonitoringId(request: RuleUpdateRequest): String {

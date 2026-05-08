@@ -26,14 +26,6 @@ class AiService(
         return callOpenAI(listOf(mapOf("role" to "user", "content" to prompt)))
     }
 
-    fun getChatResponse(systemContext: String, userQuestion: String): String {
-        val messages = listOf(
-            mapOf("role" to "system", "content" to systemContext),
-            mapOf("role" to "user", "content" to userQuestion)
-        )
-        return callOpenAI(messages)
-    }
-
     private fun callOpenAI(messages: List<Map<String, String>>): String {
         val headers = HttpHeaders().apply {
             contentType = MediaType.APPLICATION_JSON

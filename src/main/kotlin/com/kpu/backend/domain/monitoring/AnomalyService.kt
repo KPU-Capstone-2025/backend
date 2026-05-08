@@ -28,7 +28,7 @@ class AnomalyService(
 ) {
     fun detect(companyId: Long, hostName: String?): AnomalyResult {
         val company = companyRepository.findById(companyId).orElseThrow()
-        val monId = company.monitoringId
+        val prometheusUrl = "http://${company.ip ?: "localhost"}:9090"
         val now = Instant.now().epochSecond
         val oneHourAgo = now - 3600
 
@@ -40,9 +40,9 @@ class AnomalyService(
 
         val anomalies = metrics.map { (metricName, threshold) ->
             val query = if (hostName != null) "$metricName{host_name=\"$hostName\"}" else metricName
-            val pts = monitoringService.queryRangePublic(query, monId, oneHourAgo, now, 60)
+            val pts = monitoringService.queryRangePublic(query, prometheusUrl, oneHourAgo, now, 60)
             val values = pts.map { it.second }
-            val current = monitoringService.querySingleValuePublic(query, monId) ?: 0.0
+            val current = monitoringService.querySingleValuePublic(query, prometheusUrl) ?: 0.0
 
             if (values.size < 5) {
                 MetricAnomaly(metricName, current, 0.0, 0.0, false, "normal")

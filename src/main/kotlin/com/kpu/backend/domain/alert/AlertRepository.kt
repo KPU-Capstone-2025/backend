@@ -9,4 +9,10 @@ interface AlertRepository : JpaRepository<AlertLog, Long> {
         start: java.time.LocalDateTime,
         end: java.time.LocalDateTime
     ): List<AlertLog>
+    fun findByMonitoringIdAndHostNameAndCreatedAtBetween(
+        monitoringId: String,
+        hostName: String,
+        start: java.time.LocalDateTime,
+        end: java.time.LocalDateTime
+    ): List<AlertLog>
 }

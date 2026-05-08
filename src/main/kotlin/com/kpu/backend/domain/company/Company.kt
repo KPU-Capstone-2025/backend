@@ -13,5 +13,6 @@ class Company(
     val phone: String,
     val monitoringId: String,
     val collectorUrl: String,
+    val ip: String? = null,
     val createdAt: LocalDateTime = LocalDateTime.now()
 )

@@ -2,7 +2,6 @@ package com.kpu.backend.domain.monitoring
 
 import com.fasterxml.jackson.annotation.JsonInclude
 
-/** 단일 지표의 일별 집계 (avg/min/max/latest) */
 data class MetricStats(
     val avg: Double,
     val min: Double,
@@ -10,35 +9,31 @@ data class MetricStats(
     val latest: Double
 )
 
-/** 호스트 하루치 집계 */
 data class HostDailyMetrics(
-    val cpu: MetricStats,      // %
-    val memory: MetricStats,   // MB
-    val disk: MetricStats,     // %
-    val network: MetricStats   // KB/s (rx+tx)
+    val cpu: MetricStats,
+    val memory: MetricStats,
+    val disk: MetricStats,
+    val network: MetricStats
 )
 
-/** 컨테이너 하루치 집계 */
 data class ContainerDailyMetrics(
     val containerId: String,
     val status: String,
-    val cpu: MetricStats,      // %
-    val memory: MetricStats,   // MB
-    val network: MetricStats   // KB/s (rx)
+    val cpu: MetricStats,
+    val memory: MetricStats,
+    val network: MetricStats
 )
 
-/** 하루 전체 집계 */
 data class DailyMetrics(
-    val date: String,                     // "2026-04-01"
+    val date: String,
     val hasData: Boolean,
-    val worstStatus: String,              // STABLE / WARNING / CRITICAL / NO_DATA
+    val worstStatus: String,
     val alertCount: Int,
     @JsonInclude(JsonInclude.Include.NON_NULL)
     val host: HostDailyMetrics?,
     val containers: List<ContainerDailyMetrics>
 )
 
-/** 월간 응답 최상위 */
 data class MonthlyMetricsResponse(
     val year: Int,
     @JsonInclude(JsonInclude.Include.NON_NULL) val month: Int?,

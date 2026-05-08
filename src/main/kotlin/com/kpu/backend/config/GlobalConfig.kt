@@ -13,8 +13,6 @@ import org.springframework.web.client.RestTemplate
 import org.springframework.web.cors.CorsConfiguration
 import org.springframework.web.cors.CorsConfigurationSource
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.ec2.Ec2Client
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client
@@ -25,26 +23,20 @@ import software.amazon.awssdk.services.ssm.SsmClient
 @EnableWebSecurity
 class GlobalConfig(private val jwtUtil: JwtUtil) {
 
-    @Value("\${cloud.aws.credentials.access-key}") private lateinit var accessKey: String
-    @Value("\${cloud.aws.credentials.secret-key}") private lateinit var secretKey: String
     @Value("\${cloud.aws.region.static}") private lateinit var region: String
 
     @Bean fun restTemplate() = RestTemplate()
 
     @Bean fun passwordEncoder() = BCryptPasswordEncoder()
 
-    private fun getCredentialsProvider() = StaticCredentialsProvider.create(
-        AwsBasicCredentials.create(accessKey, secretKey)
-    )
-
     @Bean fun ec2Client(): Ec2Client = Ec2Client.builder()
-        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
+        .region(Region.of(region)).build()
 
     @Bean fun albClient(): ElasticLoadBalancingV2Client = ElasticLoadBalancingV2Client.builder()
-        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
+        .region(Region.of(region)).build()
 
     @Bean fun ssmClient(): SsmClient = SsmClient.builder()
-        .region(Region.of(region)).credentialsProvider(getCredentialsProvider()).build()
+        .region(Region.of(region)).build()
 
     @Bean
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
@@ -82,4 +74,3 @@ class GlobalConfig(private val jwtUtil: JwtUtil) {
         }
     }
 }
-
