@@ -13,6 +13,7 @@ class Company(
     val phone: String,
     val monitoringId: String,
     val collectorUrl: String,
-    val ip: String? = null,
+    val ip: String? = null,       // 모니터링 EC2 private IP (Prometheus/Loki 쿼리용)
+    val serverIp: String? = null, // 고객 서버 IP (회원가입 시 입력)
     val createdAt: LocalDateTime = LocalDateTime.now()
 )
