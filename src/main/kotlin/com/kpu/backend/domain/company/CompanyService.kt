@@ -128,8 +128,6 @@ class CompanyService(
             CreateRuleRequest.builder()
                 .listenerArn(listenerArn).priority(priority)
                 .conditions(
-                    RuleCondition.builder().field("host-header")
-                        .hostHeaderConfig { it.values("data") }.build(),
                     RuleCondition.builder().field("http-header")
                         .httpHeaderConfig { it.httpHeaderName("X-Server-Group").values(monitoringId) }.build()
                 )
