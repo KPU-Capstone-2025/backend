@@ -30,20 +30,20 @@ server:
 
 aws:
   vpc:
-    id: ${AWS_VPC_ID}
+    id: ${AWS_VPC_ID:}
   ami:
-    id: ${AWS_AMI_ID}
+    id: ${AWS_AMI_ID:}
   subnet:
     private:
-      id: ${AWS_SUBNET_PRIVATE_ID}
+      id: ${AWS_SUBNET_PRIVATE_ID:}
   sg:
     monitoring:
-      id: ${AWS_SG_MONITORING_ID}
+      id: ${AWS_SG_MONITORING_ID:}
   alb:
     dns:
-      name: ${AWS_ALB_DNS_NAME}
+      name: ${AWS_ALB_DNS_NAME:}
     listener:
-      arn: ${AWS_ALB_LISTENER_ARN}
+      arn: ${AWS_ALB_LISTENER_ARN:}
 
 cloud:
   aws:
