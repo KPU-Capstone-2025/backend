@@ -88,7 +88,7 @@ class CompanyService(
                 monitoringId = monitoringId,
                 collectorUrl = albDnsName,
                 ip = monitoringIp,
-                serverIp = req.ip
+                serverIp = req.ip ?: ""
             )
         )
     }
