@@ -2,6 +2,12 @@ package com.kpu.backend.domain.monitoring
 
 data class ContainerStatus(val containerId: String, val status: String)
 
+data class UserUsageStat(
+    val username: String,
+    val cpuUsage: Double,
+    val memoryBytes: Long
+)
+
 data class ResourceMetrics(
     val status: String,
     val cpuUsage: Double,

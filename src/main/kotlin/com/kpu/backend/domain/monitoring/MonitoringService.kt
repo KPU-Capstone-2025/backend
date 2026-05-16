@@ -90,7 +90,7 @@ class MonitoringService(
 
         return ResourceMetrics(
             status = "RUNNING",
-            cpuUsage = querySingleValue("rate(container_cpu_usage_seconds_total{container_name=\"$containerName\"}[1m]) * 100", promUrl) ?: 0.0,
+            cpuUsage = querySingleValue("rate(container_cpu_usage_ns{container_name=\"$containerName\"}[1m]) / 1e9 * 100", promUrl) ?: 0.0,
             memoryUsage = memPct,
             diskUsage = 0.0,
             networkTraffic = 0.0
@@ -188,9 +188,9 @@ class MonitoringService(
         val containerSeries = containers.associate { c ->
             val id = c.containerId
             Triple(
-                queryRange("rate(container_cpu_usage_seconds_total{container_name=\"$id\"}[1h]) * 100", promUrl, epochStart, epochEnd, step),
+                queryRange("rate(container_cpu_usage_ns{container_name=\"$id\"}[1h]) / 1e9 * 100", promUrl, epochStart, epochEnd, step),
                 queryRange("container_memory_usage_bytes{container_name=\"$id\"}", promUrl, epochStart, epochEnd, step),
-                queryRange("rate(container_network_receive_bytes_total{container_name=\"$id\"}[1h])", promUrl, epochStart, epochEnd, step)
+                queryRange("rate(container_network_rx_bytes{container_name=\"$id\"}[1h])", promUrl, epochStart, epochEnd, step)
             ).let { id to it }
         }
 
@@ -280,6 +280,37 @@ class MonitoringService(
             }
             logs.filter { it.severity == "ERROR" || it.severity == "WARN" }.sortedByDescending { it.timestamp }
         } catch (e: Exception) { emptyList() }
+    }
+
+    fun getUserUsage(companyId: Long, hostName: String? = null): List<UserUsageStat> {
+        val company = companyRepository.findById(companyId).orElse(null) ?: return emptyList()
+        val ip = company.ip ?: return emptyList()
+        val promUrl = prometheusUrl(ip)
+        val hf = if (!hostName.isNullOrBlank()) "{host_name=\"$hostName\"}" else ""
+
+        val cpuResults = queryPrometheus("user_cpu_usage$hf", promUrl)
+        val memResults = queryPrometheus("user_memory_bytes$hf", promUrl)
+
+        val cpuByUser = cpuResults.associate { row ->
+            val username = (row["metric"] as? Map<*, *>)?.get("username")?.toString() ?: return@associate "" to 0.0
+            val value = (row["value"] as? List<*>)?.get(1)?.toString()?.toDoubleOrNull() ?: 0.0
+            username to value
+        }.filterKeys { it.isNotEmpty() }
+
+        val memByUser = memResults.associate { row ->
+            val username = (row["metric"] as? Map<*, *>)?.get("username")?.toString() ?: return@associate "" to 0L
+            val value = (row["value"] as? List<*>)?.get(1)?.toString()?.toLongOrNull() ?: 0L
+            username to value
+        }.filterKeys { it.isNotEmpty() }
+
+        val allUsers = (cpuByUser.keys + memByUser.keys).toSet()
+        return allUsers.map { username ->
+            UserUsageStat(
+                username = username,
+                cpuUsage = cpuByUser[username] ?: 0.0,
+                memoryBytes = memByUser[username] ?: 0L
+            )
+        }.sortedByDescending { it.cpuUsage }
     }
 
     fun queryRangePublic(query: String, prometheusUrl: String, start: Long, end: Long, step: Int) =

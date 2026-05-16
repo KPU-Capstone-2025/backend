@@ -74,15 +74,45 @@ class AlertRuleService(
             |          summary: ${serverDesc}디스크 용량 부족 감지
             |          description: ${serverDesc}서버의 디스크 사용량이 ${request.diskThreshold}%를 초과했습니다.
             |
-            |      - alert: HighNetworkTraffic$suffix
-            |        expr: rate(system_network_rx_bytes$hostFilter[1m]) + rate(system_network_tx_bytes$hostFilter[1m]) > ${request.networkThreshold}
+            |      - alert: HighDiskIO$suffix
+            |        expr: rate(system_disk_read_bytes$hostFilter[1m]) + rate(system_disk_write_bytes$hostFilter[1m]) > ${request.diskIoThreshold}
             |        for: ${request.durationSeconds}s
             |        labels:
             |          severity: warning
             |          company_id: $resolvedMonitoringId
             |        annotations:
-            |          summary: ${serverDesc}네트워크 트래픽 급증 감지
-            |          description: ${serverDesc}서버의 네트워크 트래픽이 임계치(${request.networkThreshold} bytes/s)를 초과했습니다.
+            |          summary: ${serverDesc}디스크 I/O 급증 감지
+            |          description: ${serverDesc}서버의 디스크 I/O가 임계치(${request.diskIoThreshold} bytes/s)를 초과했습니다.
+            |
+            |      - alert: HighUserCount$suffix
+            |        expr: system_logged_in_users$hostFilter > ${request.userCountThreshold}
+            |        for: ${request.durationSeconds}s
+            |        labels:
+            |          severity: warning
+            |          company_id: $resolvedMonitoringId
+            |        annotations:
+            |          summary: ${serverDesc}동시 접속자 수 초과
+            |          description: ${serverDesc}서버에 로그인한 사용자 수가 ${request.userCountThreshold}명을 초과했습니다.
+            |
+            |      - alert: HighNetworkIn$suffix
+            |        expr: rate(system_network_rx_bytes$hostFilter[1m]) > ${request.networkInThreshold}
+            |        for: ${request.durationSeconds}s
+            |        labels:
+            |          severity: warning
+            |          company_id: $resolvedMonitoringId
+            |        annotations:
+            |          summary: ${serverDesc}네트워크 수신 트래픽 급증
+            |          description: ${serverDesc}서버의 네트워크 수신량이 임계치(${request.networkInThreshold} bytes/s)를 초과했습니다.
+            |
+            |      - alert: HighNetworkOut$suffix
+            |        expr: rate(system_network_tx_bytes$hostFilter[1m]) > ${request.networkOutThreshold}
+            |        for: ${request.durationSeconds}s
+            |        labels:
+            |          severity: warning
+            |          company_id: $resolvedMonitoringId
+            |        annotations:
+            |          summary: ${serverDesc}네트워크 송신 트래픽 급증
+            |          description: ${serverDesc}서버의 네트워크 송신량이 임계치(${request.networkOutThreshold} bytes/s)를 초과했습니다.
         """.trimMargin()
 
         val command = "cat << 'EOF' > /opt/monitoring/alert.rules.yml\n$yaml\nEOF\n(docker kill -s SIGHUP prometheus || docker restart prometheus)"
@@ -107,7 +137,10 @@ class AlertRuleService(
             setting.cpuThreshold = request.cpuThreshold
             setting.memoryThreshold = request.memoryThreshold
             setting.diskThreshold = request.diskThreshold
-            setting.networkThreshold = request.networkThreshold
+            setting.diskIoThreshold = request.diskIoThreshold
+            setting.userCountThreshold = request.userCountThreshold
+            setting.networkInThreshold = request.networkInThreshold
+            setting.networkOutThreshold = request.networkOutThreshold
             setting.durationSeconds = request.durationSeconds
             alertRuleSettingRepository.save(setting)
         }

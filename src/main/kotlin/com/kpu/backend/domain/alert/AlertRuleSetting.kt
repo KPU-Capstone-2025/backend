@@ -20,6 +20,9 @@ class AlertRuleSetting(
     var cpuThreshold: Int = 80,
     var memoryThreshold: Int = 85,
     var diskThreshold: Int = 90,
-    var networkThreshold: Long = 10485760,
+    var diskIoThreshold: Long = 104857600,   // bytes/s (default 100MB/s)
+    var userCountThreshold: Int = 10,
+    var networkInThreshold: Long = 10485760,  // bytes/s (default 10MB/s)
+    var networkOutThreshold: Long = 10485760,
     var durationSeconds: Int = 10
 )
