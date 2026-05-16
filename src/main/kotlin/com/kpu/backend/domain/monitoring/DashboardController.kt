@@ -26,6 +26,10 @@ class DashboardController(
     fun hosts(@PathVariable companyId: Long) =
         ResponseEntity.ok(monitoringService.getDiscoveredHosts(companyId))
 
+    @GetMapping("/{companyId}/users")
+    fun users(@PathVariable companyId: Long, @RequestParam(required = false) hostName: String?) =
+        ResponseEntity.ok(monitoringService.getUserUsage(companyId, hostName))
+
     @GetMapping("/{companyId}/anomaly")
     fun anomaly(@PathVariable companyId: Long, @RequestParam(required = false) hostName: String?) =
         ResponseEntity.ok(anomalyService.detect(companyId, hostName))

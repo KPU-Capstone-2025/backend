@@ -65,7 +65,7 @@ class GlobalConfig(private val jwtUtil: JwtUtil) {
     @Bean
     fun corsConfigurationSource(): CorsConfigurationSource {
         val configuration = CorsConfiguration().apply {
-            allowedOrigins = listOf("*")
+            allowedOriginPatterns = listOf("*")
             allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
             allowedHeaders = listOf("*")
         }
