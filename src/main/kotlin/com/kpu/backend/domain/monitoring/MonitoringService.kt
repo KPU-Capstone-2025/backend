@@ -88,12 +88,15 @@ class MonitoringService(
         val totalBytes = querySingleValue("system_memory_total_bytes", promUrl) ?: 0.0
         val memPct = if (totalBytes > 0) (memBytes / totalBytes) * 100.0 else 0.0
 
+        val netRx = querySingleValue("rate(container_network_rx_bytes{container_name=\"$containerName\"}[1m])", promUrl) ?: 0.0
+        val netTx = querySingleValue("rate(container_network_tx_bytes{container_name=\"$containerName\"}[1m])", promUrl) ?: 0.0
+
         return ResourceMetrics(
             status = "RUNNING",
             cpuUsage = querySingleValue("rate(container_cpu_usage_ns{container_name=\"$containerName\"}[1m]) / 1e9 * 100", promUrl) ?: 0.0,
             memoryUsage = memPct,
             diskUsage = 0.0,
-            networkTraffic = 0.0
+            networkTraffic = netRx + netTx
         )
     }
 
@@ -288,8 +291,8 @@ class MonitoringService(
         val promUrl = prometheusUrl(ip)
         val hf = if (!hostName.isNullOrBlank()) "{host_name=\"$hostName\"}" else ""
 
-        val cpuResults = queryPrometheus("user_cpu_usage$hf", promUrl)
-        val memResults = queryPrometheus("user_memory_bytes$hf", promUrl)
+        val cpuResults = queryPrometheus("last_over_time(user_cpu_usage$hf[1m])", promUrl)
+        val memResults = queryPrometheus("last_over_time(user_memory_bytes$hf[1m])", promUrl)
 
         val cpuByUser = cpuResults.associate { row ->
             val username = (row["metric"] as? Map<*, *>)?.get("username")?.toString() ?: return@associate "" to 0.0
@@ -310,7 +313,8 @@ class MonitoringService(
                 cpuUsage = cpuByUser[username] ?: 0.0,
                 memoryBytes = memByUser[username] ?: 0L
             )
-        }.sortedByDescending { it.cpuUsage }
+        }.filter { it.cpuUsage > 0 || it.memoryBytes > 0 }
+        .sortedByDescending { it.cpuUsage }
     }
 
     fun queryRangePublic(query: String, prometheusUrl: String, start: Long, end: Long, step: Int) =

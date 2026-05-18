@@ -85,7 +85,7 @@ class AlertRuleService(
             |          description: ${serverDesc}서버의 디스크 I/O가 임계치(${request.diskIoThreshold} bytes/s)를 초과했습니다.
             |
             |      - alert: HighUserCount$suffix
-            |        expr: system_logged_in_users$hostFilter > ${request.userCountThreshold}
+            |        expr: last_over_time(system_logged_in_users$hostFilter[1m]) > ${request.userCountThreshold}
             |        for: ${request.durationSeconds}s
             |        labels:
             |          severity: warning
@@ -115,7 +115,11 @@ class AlertRuleService(
             |          description: ${serverDesc}서버의 네트워크 송신량이 임계치(${request.networkOutThreshold} bytes/s)를 초과했습니다.
         """.trimMargin()
 
-        val command = "cat << 'EOF' > /opt/monitoring/alert.rules.yml\n$yaml\nEOF\n(docker kill -s SIGHUP prometheus || docker restart prometheus)"
+        val ruleFile = if (!request.hostName.isNullOrBlank())
+            "/opt/monitoring/alert.rules${suffix}.yml"
+        else
+            "/opt/monitoring/alert.rules.yml"
+        val command = "cat << 'EOF' > $ruleFile\n$yaml\nEOF\n(docker kill -s SIGHUP monitoring-prometheus-1 || docker restart monitoring-prometheus-1)"
 
         val response = ssmClient.sendCommand(
             SendCommandRequest.builder()
