@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capstone System Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Pretendard:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2236;
+    --border: #1e3a5f;
+    --border-light: #2d4a7a;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --text-muted: #94a3b8;
+
+    --aws-orange: #FF9900;
+    --aws-blue: #232F3E;
+
+    --public-fill: rgba(16, 185, 129, 0.08);
+    --public-border: #10b981;
+    --private-spring: rgba(59, 130, 246, 0.08);
+    --private-spring-border: #3b82f6;
+    --private-db: rgba(168, 85, 247, 0.08);
+    --private-db-border: #a855f7;
+    --private-cicd: rgba(245, 158, 11, 0.08);
+    --private-cicd-border: #f59e0b;
+    --private-monitoring: rgba(239, 68, 68, 0.08);
+    --private-monitoring-border: #ef4444;
+
+    --az-a: rgba(56, 189, 248, 0.04);
+    --az-a-border: #38bdf8;
+    --az-c: rgba(251, 146, 60, 0.04);
+    --az-c-border: #fb923c;
+
+    --arrow: #4ade80;
+    --arrow-data: #f59e0b;
+    --arrow-cicd: #a78bfa;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Pretendard', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(30,58,95,0.3) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(30,58,95,0.3) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page-wrap {
+    position: relative;
+    z-index: 1;
+    padding: 32px 24px 64px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 36px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-badge {
+    background: var(--aws-orange);
+    color: #000;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+  }
+  .header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.5px;
+  }
+  .header-meta {
+    margin-left: auto;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+  .meta-item {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .meta-item span {
+    color: var(--aws-orange);
+    font-weight: 600;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    width: fit-content;
+  }
+  .tab {
+    padding: 8px 20px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text-dim);
+    border: none;
+    background: transparent;
+    font-family: 'Pretendard', sans-serif;
+  }
+  .tab.active {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border-light);
+  }
+  .tab:hover:not(.active) { color: var(--text-muted); }
+
+  /* Panel */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ===================== NETWORK DIAGRAM ===================== */
+  .net-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .net-diagram::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--aws-orange), #ff6b35, var(--aws-orange));
+  }
+
+  .region-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--aws-orange);
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 20px;
+    padding: 6px 14px;
+    background: rgba(255,153,0,0.1);
+    border: 1px solid rgba(255,153,0,0.3);
+    border-radius: 6px;
+    text-transform: uppercase;
+  }
+
+  .vpc-box {
+    border: 2px solid rgba(255,153,0,0.4);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    background: rgba(255,153,0,0.02);
+  }
+  .vpc-tag {
+    position: absolute;
+    top: -12px;
+    left: 16px;
+    background: var(--surface);
+    padding: 2px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--aws-orange);
+    font-weight: 700;
+    border: 1px solid rgba(255,153,0,0.4);
+    border-radius: 4px;
+  }
+
+  .az-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .az-box {
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+  }
+  .az-box.az-a {
+    background: var(--az-a);
+    border: 1.5px dashed var(--az-a-border);
+  }
+  .az-box.az-c {
+    background: var(--az-c);
+    border: 1.5px dashed var(--az-c-border);
+  }
+  .az-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    display: inline-block;
+    letter-spacing: 0.5px;
+  }
+  .az-a .az-label { color: var(--az-a-border); background: rgba(56,189,248,0.1); }
+  .az-c .az-label { color: var(--az-c-border); background: rgba(251,146,60,0.1); }
+
+  .subnet {
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    transition: all 0.2s;
+  }
+  .subnet:hover { filter: brightness(1.15); transform: translateX(2px); }
+  .subnet:last-child { margin-bottom: 0; }
+
+  .subnet.public { background: var(--public-fill); border: 1px solid var(--public-border); }
+  .subnet.spring { background: var(--private-spring); border: 1px solid var(--private-spring-border); }
+  .subnet.database { background: var(--private-db); border: 1px solid var(--private-db-border); }
+  .subnet.cicd { background: var(--private-cicd); border: 1px solid var(--private-cicd-border); }
+  .subnet.monitoring { background: var(--private-monitoring); border: 1px solid var(--private-monitoring-border); }
+
+  .subnet-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 13px;
+  }
+  .subnet.public .subnet-icon { background: rgba(16,185,129,0.2); color: var(--public-border); }
+  .subnet.spring .subnet-icon { background: rgba(59,130,246,0.2); color: var(--private-spring-border); }
+  .subnet.database .subnet-icon { background: rgba(168,85,247,0.2); color: var(--private-db-border); }
+  .subnet.cicd .subnet-icon { background: rgba(245,158,11,0.2); color: var(--private-cicd-border); }
+  .subnet.monitoring .subnet-icon { background: rgba(239,68,68,0.2); color: var(--private-monitoring-border); }
+
+  .subnet-info { flex: 1; min-width: 0; }
+  .subnet-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .subnet-cidr {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-top: 1px;
+  }
+  .subnet-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .subnet.public .subnet-badge { background: rgba(16,185,129,0.2); color: var(--public-border); }
+  .subnet.spring .subnet-badge { background: rgba(59,130,246,0.2); color: var(--private-spring-border); }
+  .subnet.database .subnet-badge { background: rgba(168,85,247,0.2); color: var(--private-db-border); }
+  .subnet.cicd .subnet-badge { background: rgba(245,158,11,0.2); color: var(--private-cicd-border); }
+  .subnet.monitoring .subnet-badge { background: rgba(239,68,68,0.2); color: var(--private-monitoring-border); }
+
+  /* Services row */
+  .services-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .service-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    text-align: center;
+    transition: all 0.25s;
+    position: relative;
+    overflow: hidden;
+  }
+  .service-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .service-card.alb::before { background: var(--aws-orange); }
+  .service-card.ecs::before { background: var(--private-spring-border); }
+  .service-card.rds::before { background: var(--private-db-border); }
+  .service-card.s3::before { background: var(--public-border); }
+  .service-card:hover { border-color: var(--border-light); transform: translateY(-2px); }
+  .service-icon-big {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    margin: 0 auto 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .service-card.alb .service-icon-big { background: rgba(255,153,0,0.15); }
+  .service-card.ecs .service-icon-big { background: rgba(59,130,246,0.15); }
+  .service-card.rds .service-icon-big { background: rgba(168,85,247,0.15); }
+  .service-card.s3 .service-icon-big { background: rgba(16,185,129,0.15); }
+  .service-title { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+  .service-desc { font-size: 10px; color: var(--text-dim); line-height: 1.4; }
+
+  /* DNS section */
+  .dns-section {
+    margin-top: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .section-title-small {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .dns-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  .dns-table th {
+    text-align: left;
+    padding: 6px 10px;
+    color: var(--text-dim);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+  }
+  .dns-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(30,58,95,0.5);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .dns-table tr:last-child td { border-bottom: none; }
+  .dns-table td:first-child { color: var(--aws-orange); font-weight: 600; }
+  .dns-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    background: rgba(59,130,246,0.15);
+    color: var(--private-spring-border);
+  }
+
+  /* ===================== FLOW DIAGRAMS ===================== */
+  .flow-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .flow-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    position: relative;
+    overflow: hidden;
+  }
+  .flow-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .flow-card.agent-flow::before { background: linear-gradient(90deg, var(--arrow-data), #f97316); }
+  .flow-card.cicd-flow::before { background: linear-gradient(90deg, var(--arrow-cicd), #6366f1); }
+  .flow-card.spring-flow::before { background: linear-gradient(90deg, var(--private-spring-border), #06b6d4); }
+  .flow-card.provisioning::before { background: linear-gradient(90deg, var(--public-border), #14b8a6); }
+
+  .flow-title {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .flow-subtitle { font-size: 11px; color: var(--text-dim); margin-bottom: 18px; }
+
+  .flow-step {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .flow-step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 32px;
+    bottom: -12px;
+    width: 1px;
+    background: var(--border);
+  }
+  .step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .agent-flow .step-num { background: rgba(245,158,11,0.2); color: var(--arrow-data); border: 1px solid var(--arrow-data); }
+  .cicd-flow .step-num { background: rgba(167,139,250,0.2); color: var(--arrow-cicd); border: 1px solid var(--arrow-cicd); }
+  .spring-flow .step-num { background: rgba(59,130,246,0.2); color: var(--private-spring-border); border: 1px solid var(--private-spring-border); }
+  .provisioning .step-num { background: rgba(16,185,129,0.2); color: var(--public-border); border: 1px solid var(--public-border); }
+
+  .step-body { flex: 1; }
+  .step-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .step-desc { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .step-tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+  }
+  .tag-orange { background: rgba(245,158,11,0.15); color: var(--arrow-data); }
+  .tag-blue { background: rgba(59,130,246,0.15); color: var(--private-spring-border); }
+  .tag-purple { background: rgba(167,139,250,0.15); color: var(--arrow-cicd); }
+  .tag-green { background: rgba(16,185,129,0.15); color: var(--public-border); }
+  .tag-red { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+  .code-inline {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #4ade80;
+  }
+
+  /* SVG Architecture */
+  .svg-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-top: 20px;
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  /* Stack chips */
+  .stack-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .chip {
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+  .chip-blue { background: rgba(59,130,246,0.1); color: #60a5fa; border-color: rgba(59,130,246,0.3); }
+  .chip-green { background: rgba(16,185,129,0.1); color: #34d399; border-color: rgba(16,185,129,0.3); }
+  .chip-orange { background: rgba(245,158,11,0.1); color: #fbbf24; border-color: rgba(245,158,11,0.3); }
+  .chip-red { background: rgba(239,68,68,0.1); color: #f87171; border-color: rgba(239,68,68,0.3); }
+  .chip-purple { background: rgba(168,85,247,0.1); color: #c084fc; border-color: rgba(168,85,247,0.3); }
+
+  .full-arch-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  @keyframes dash {
+    to { stroke-dashoffset: -20; }
+  }
+  .flow-arrow {
+    animation: dash 1.5s linear infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .pulse { animation: pulse-dot 2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-badge">AWS</div>
+    <h1>Capstone System Architecture</h1>
+    <div class="header-meta">
+      <div class="meta-item">Region: <span>ap-northeast-2</span></div>
+      <div class="meta-item">VPC: <span>10.0.0.0/16</span></div>
+      <div class="meta-item">Domain: <span>monittoring.co.kr</span></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('network')">Network & VPC</button>
+    <button class="tab" onclick="switchTab('flow')">Agent & CI/CD Flow</button>
+    <button class="tab" onclick="switchTab('spring')">Spring App</button>
+    <button class="tab" onclick="switchTab('overview')">전체 아키텍처</button>
+  </div>
+
+  <!-- TAB 1: Network -->
+  <div id="tab-network" class="panel active">
+    <div class="net-diagram">
+      <div class="region-label">
+        <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6" cy="6" r="2" fill="currentColor"/></svg>
+        AWS Region: ap-northeast-2 (Seoul)
+      </div>
+
+      <div class="vpc-box">
+        <div class="vpc-tag">VPC — vpc-0ae045ccf900d383a (10.0.0.0/16)</div>
+
+        <div class="az-grid">
+          <!-- AZ A -->
+          <div class="az-box az-a">
+            <div class="az-label">ap-northeast-2a</div>
+            <div class="subnet public">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-public-a</div>
+                <div class="subnet-cidr">10.0.0.0/26 | NAT Gateway</div>
+              </div>
+              <div class="subnet-badge">PUBLIC</div>
+            </div>
+            <div class="subnet spring">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-private-spring-a</div>
+                <div class="subnet-cidr">10.0.0.64/27 | Spring App (ECS)</div>
+              </div>
+              <div class="subnet-badge">SPRING</div>
+            </div>
+            <div class="subnet database">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-private-database-a</div>
+                <div class="subnet-cidr">10.0.0.96/27 | RDS Master</div>
+              </div>
+              <div class="subnet-badge">RDS</div>
+            </div>
+            <div class="subnet cicd">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-private-cicd-a</div>
+                <div class="subnet-cidr">10.0.0.128/28 | Jenkins</div>
+              </div>
+              <div class="subnet-badge">CI/CD</div>
+            </div>
+            <div class="subnet monitoring">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-private-monitoring-a</div>
+                <div class="subnet-cidr">10.0.1.0/24 | Prometheus (256)</div>
+              </div>
+              <div class="subnet-badge">MONITOR</div>
+            </div>
+          </div>
+
+          <!-- AZ C -->
+          <div class="az-box az-c">
+            <div class="az-label">ap-northeast-2c</div>
+            <div class="subnet public">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-public-c</div>
+                <div class="subnet-cidr">10.0.10.0/26 | NAT Gateway</div>
+              </div>
+              <div class="subnet-badge">PUBLIC</div>
+            </div>
+            <div class="subnet spring">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-private-spring-c</div>
+                <div class="subnet-cidr">10.0.10.64/27 | Spring App</div>
+              </div>
+              <div class="subnet-badge">SPRING</div>
+            </div>
+            <div class="subnet database">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-private-database-c</div>
+                <div class="subnet-cidr">10.0.10.96/27 | RDS Multi-AZ</div>
+              </div>
+              <div class="subnet-badge">RDS</div>
+            </div>
+            <div class="subnet cicd">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-private-cicd-c</div>
+                <div class="subnet-cidr">10.0.10.128/28 | CI/CD</div>
+              </div>
+              <div class="subnet-badge">CI/CD</div>
+            </div>
+            <div class="subnet monitoring">
+              <div class="subnet-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              </div>
+              <div class="subnet-info">
+                <div class="subnet-name">capstone-private-monitoring-c</div>
+                <div class="subnet-cidr">10.0.11.0/24 | Monitoring (256)</div>
+              </div>
+              <div class="subnet-badge">MONITOR</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AWS Services -->
+      <div class="services-row">
+        <div class="service-card alb">
+          <div class="service-icon-big">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF9900" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <div class="service-title" style="color:#FF9900">ALB</div>
+          <div class="service-desc">Application Load Balancer<br/>:80 :443 :4318<br/>Host-based Routing</div>
+        </div>
+        <div class="service-card ecs">
+          <div class="service-icon-big">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <div class="service-title" style="color:#3b82f6">ECS</div>
+          <div class="service-desc">Spring Boot Container<br/>Fargate Task<br/>ECR Image</div>
+        </div>
+        <div class="service-card rds">
+          <div class="service-icon-big">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <div class="service-title" style="color:#a855f7">RDS</div>
+          <div class="service-desc">MySQL / PostgreSQL<br/>Master + Multi-AZ<br/>Private Subnet</div>
+        </div>
+        <div class="service-card s3">
+          <div class="service-icon-big">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.26 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.17 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.14a16 16 0 0 0 6 6l.55-.55a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          </div>
+          <div class="service-title" style="color:#10b981">S3 + CF</div>
+          <div class="service-desc">Agent Install Files<br/>CloudFront CDN<br/>agent.monittoring.co.kr</div>
+        </div>
+      </div>
+
+      <!-- DNS Table -->
+      <div class="dns-section">
+        <div class="section-title-small">DNS Records — Gabia (monittoring.co.kr)</div>
+        <table class="dns-table">
+          <thead>
+            <tr>
+              <th>Host</th>
+              <th>Type</th>
+              <th>Target</th>
+              <th>Purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>www</td>
+              <td><span class="dns-badge">CNAME</span></td>
+              <td>CloudFront Distribution</td>
+              <td style="color:#94a3b8">Frontend (미연동)</td>
+            </tr>
+            <tr>
+              <td>api</td>
+              <td><span class="dns-badge">CNAME</span></td>
+              <td>capstone-elb-...amazonaws.com</td>
+              <td style="color:#94a3b8">Spring Boot API</td>
+            </tr>
+            <tr>
+              <td>agent</td>
+              <td><span class="dns-badge">CNAME</span></td>
+              <td>agent.monittoring.co.kr.s3...</td>
+              <td style="color:#94a3b8">Agent 설치 파일 (S3)</td>
+            </tr>
+            <tr>
+              <td>data</td>
+              <td><span class="dns-badge">CNAME</span></td>
+              <td>capstone-elb-...amazonaws.com</td>
+              <td style="color:#94a3b8">OTel 데이터 수신 (ALB :4318)</td>
+            </tr>
+            <tr>
+              <td>jenkins</td>
+              <td><span class="dns-badge">CNAME</span></td>
+              <td>capstone-elb-...amazonaws.com</td>
+              <td style="color:#94a3b8">Jenkins CI/CD UI</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--public-border)"></div>Public Subnet</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--private-spring-border)"></div>Spring App</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--private-db-border)"></div>Database</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--private-cicd-border)"></div>CI/CD</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--private-monitoring-border)"></div>Monitoring</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--az-a-border)"></div>AZ-a</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--az-c-border)"></div>AZ-c</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: Flow -->
+  <div id="tab-flow" class="panel">
+    <div class="flow-grid">
+      <!-- Agent Data Flow -->
+      <div class="flow-card agent-flow">
+        <div class="flow-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Agent Data Flow
+        </div>
+        <div class="flow-subtitle">기업 에이전트 -> ALB -> OTel Collector</div>
+
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-name">
+              Data Ingestion
+              <span class="step-tag tag-orange">HTTP POST</span>
+            </div>
+            <div class="step-desc">
+              기업 서버의 에이전트가 리소스 수집 후<br>
+              <span class="code-inline">data.monittoring.co.kr:4318</span>으로 전송<br>
+              Header: <span class="code-inline">X-Server-Group: {monitoringId}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-name">
+              L7 Intelligent Routing
+              <span class="step-tag tag-orange">ALB :4318</span>
+            </div>
+            <div class="step-desc">
+              ALB가 두 조건으로 라우팅 판단:<br>
+              - Host Header == <span class="code-inline">data</span><br>
+              - X-Server-Group == <span class="code-inline">{monitoringId}</span><br>
+              해당 기업 전용 Target Group으로 포워딩
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-name">
+              OTel Collector
+              <span class="step-tag tag-orange">:4318</span>
+            </div>
+            <div class="step-desc">
+              EC2 내 OpenTelemetry Collector 수신<br>
+              URI 경로로 데이터 분류:<br>
+              <span class="code-inline">/v1/metrics</span> -> Prometheus<br>
+              <span class="code-inline">/v1/logs</span> -> Grafana Loki
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-name">Storage</div>
+            <div class="step-desc">
+              Metrics: Prometheus (시계열 저장)<br>
+              Logs: Grafana Loki (로그 저장)<br>
+              Alert: AlertManager (임계치 알림)
+            </div>
+            <div class="stack-chips" style="margin-top:8px">
+              <span class="chip chip-orange">Prometheus</span>
+              <span class="chip chip-blue">Grafana Loki</span>
+              <span class="chip chip-red">AlertManager</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CI/CD Flow -->
+      <div class="flow-card cicd-flow">
+        <div class="flow-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+          CI/CD Pipeline
+        </div>
+        <div class="flow-subtitle">GitHub -> Jenkins -> ECR -> ECS</div>
+
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-name">
+              Trigger
+              <span class="step-tag tag-purple">Webhook</span>
+            </div>
+            <div class="step-desc">
+              개발자가 GitHub <span class="code-inline">main</span> 브랜치에 Push<br>
+              GitHub Webhook -> Jenkins 엔드포인트<br>
+              (ALB를 통해 Private Jenkins 접근)
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-name">
+              Checkout
+              <span class="step-tag tag-purple">NAT GW</span>
+            </div>
+            <div class="step-desc">
+              Jenkins (Private Subnet)가<br>
+              NAT Gateway를 경유하여<br>
+              GitHub에서 소스 코드 클론
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-name">
+              Build & Push
+              <span class="step-tag tag-purple">ECR</span>
+            </div>
+            <div class="step-desc">
+              Docker 이미지 빌드 후<br>
+              Amazon ECR로 이미지 Push<br>
+              (IAM Role 기반, 키 없음)
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-name">
+              Deploy
+              <span class="step-tag tag-purple">ECS</span>
+            </div>
+            <div class="step-desc">
+              <span class="code-inline">aws ecs update-service --force-new-deployment</span><br>
+              ECS가 ECR에서 새 이미지 Pull<br>
+              Rolling 방식으로 컨테이너 교체
+            </div>
+            <div class="stack-chips" style="margin-top:8px">
+              <span class="chip chip-purple">Jenkins</span>
+              <span class="chip chip-blue">Amazon ECR</span>
+              <span class="chip chip-green">Amazon ECS</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Spring App Flow -->
+      <div class="flow-card spring-flow">
+        <div class="flow-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          Spring Data Aggregation
+        </div>
+        <div class="flow-subtitle">Dashboard API 요청 처리</div>
+
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-name">
+              API Request
+              <span class="step-tag tag-blue">api.monittoring.co.kr</span>
+            </div>
+            <div class="step-desc">
+              사용자가 대시보드 데이터 요청<br>
+              요청 헤더에 기업 식별자 포함
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-name">Context Lookup</div>
+            <div class="step-desc">
+              요청 헤더의 기업 식별자로<br>
+              관리 DB에서 해당 기업<br>
+              EC2 내부 IP 주소 조회
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-name">
+              Internal Fetching
+              <span class="step-tag tag-blue">VPC 내부망</span>
+            </div>
+            <div class="step-desc">
+              Spring이 Proxy로서<br>
+              VPC 내부망을 통해<br>
+              Prometheus/Loki API 직접 쿼리
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-name">Data Refinement</div>
+            <div class="step-desc">
+              Raw 시계열/로그 데이터를<br>
+              프론트엔드 차트 규격에 맞게<br>
+              DTO로 변환하여 반환
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Provisioning Flow -->
+      <div class="flow-card provisioning">
+        <div class="flow-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+          Monitoring Provisioning
+        </div>
+        <div class="flow-subtitle">신규 기업 가입 시 자동 환경 구축</div>
+
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-name">
+              EC2 Provisioning
+              <span class="step-tag tag-green">t3.small</span>
+            </div>
+            <div class="step-desc">
+              capstone-private-monitoring-c 내 배치<br>
+              Golden AMI (Docker Compose 사전 설치)<br>
+              SSM Role 부여 (SSH 불필요)
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-name">Stack Deploy</div>
+            <div class="step-desc">
+              기업별 환경변수로<br>
+              docker-compose.yml 동적 생성 및 실행
+            </div>
+            <div class="stack-chips" style="margin-top:8px">
+              <span class="chip chip-orange">Prometheus</span>
+              <span class="chip chip-blue">Grafana Loki</span>
+              <span class="chip chip-green">OTel Collector</span>
+              <span class="chip chip-red">AlertManager</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-name">Network Automation</div>
+            <div class="step-desc">
+              기업 전용 Target Group 생성<br>
+              EC2 등록 후 ALB Listener Rule 추가:<br>
+              Host=<span class="code-inline">agent</span> + X-Server-Group=<span class="code-inline">{monitoringId}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-name">Ready</div>
+            <div class="step-desc">
+              기업 전용 격리된 모니터링<br>
+              인프라 프로비저닝 완료<br>
+              에이전트 즉시 연결 가능
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: Spring -->
+  <div id="tab-spring" class="panel">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+      <div class="flow-card spring-flow" style="grid-column:1/-1">
+        <div class="flow-title" style="font-size:16px; margin-bottom:6px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          Spring Application Responsibilities
+        </div>
+        <div class="flow-subtitle">사용자 인증, AWS 프로비저닝, 데이터 집계</div>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:8px;">
+          <div style="background:rgba(59,130,246,0.05); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:14px;">
+            <div style="font-weight:700; font-size:12px; color:#60a5fa; margin-bottom:8px;">A. Auth & Authorization</div>
+            <div style="font-size:11px; color:var(--text-dim); line-height:1.6;">
+              - JWT 기반 인증<br>
+              - 기업별 격리된 권한<br>
+              - Role 기반 접근 제어<br>
+              - Session Management
+            </div>
+          </div>
+          <div style="background:rgba(16,185,129,0.05); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:14px;">
+            <div style="font-weight:700; font-size:12px; color:#34d399; margin-bottom:8px;">B. AWS Provisioning</div>
+            <div style="font-size:11px; color:var(--text-dim); line-height:1.6;">
+              - EC2 자동 생성 (AMI)<br>
+              - SSM Role 자동 부여<br>
+              - Docker Compose 배포<br>
+              - ALB Rule 동적 추가
+            </div>
+          </div>
+          <div style="background:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.2); border-radius:8px; padding:14px;">
+            <div style="font-weight:700; font-size:12px; color:#fbbf24; margin-bottom:8px;">C. Data Aggregation</div>
+            <div style="font-size:11px; color:var(--text-dim); line-height:1.6;">
+              - DB에서 EC2 IP 조회<br>
+              - VPC 내부망 Proxy<br>
+              - Prometheus/Loki 쿼리<br>
+              - DTO 변환 후 반환
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Monitoring Stack -->
+      <div class="flow-card" style="border-color:rgba(239,68,68,0.3);">
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#ef4444,#f97316)"></div>
+        <div class="flow-title" style="color:#f87171;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Per-Company Monitoring Stack
+        </div>
+        <div class="flow-subtitle">Docker Compose (기업별 독립 EC2)</div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+          <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:6px; padding:10px; display:flex; align-items:center; gap:10px;">
+            <span style="font-size:18px; min-width:24px; text-align:center; color:#fbbf24; font-weight:700">P</span>
+            <div><div style="font-size:11px; font-weight:700; color:#fbbf24">Prometheus</div><div style="font-size:10px; color:var(--text-dim)">메트릭 수집 및 시계열 저장</div></div>
+          </div>
+          <div style="background:rgba(251,146,60,0.08); border:1px solid rgba(251,146,60,0.3); border-radius:6px; padding:10px; display:flex; align-items:center; gap:10px;">
+            <span style="font-size:18px; min-width:24px; text-align:center; color:#fb923c; font-weight:700">L</span>
+            <div><div style="font-size:11px; font-weight:700; color:#fb923c">Grafana Loki</div><div style="font-size:10px; color:var(--text-dim)">로그 수집 및 저장</div></div>
+          </div>
+          <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.3); border-radius:6px; padding:10px; display:flex; align-items:center; gap:10px;">
+            <span style="font-size:18px; min-width:24px; text-align:center; color:#60a5fa; font-weight:700">O</span>
+            <div><div style="font-size:11px; font-weight:700; color:#60a5fa">OTel Collector</div><div style="font-size:10px; color:var(--text-dim)">데이터 수집 및 전송 중계 (:4318)</div></div>
+          </div>
+          <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px; display:flex; align-items:center; gap:10px;">
+            <span style="font-size:18px; min-width:24px; text-align:center; color:#f87171; font-weight:700">A</span>
+            <div><div style="font-size:11px; font-weight:700; color:#f87171">AlertManager</div><div style="font-size:10px; color:var(--text-dim)">임계치 초과 시 알림 발송</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SSM & IAM -->
+      <div class="flow-card" style="border-color:rgba(168,85,247,0.3);">
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#a855f7,#6366f1)"></div>
+        <div class="flow-title" style="color:#c084fc;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Security & Access Control
+        </div>
+        <div class="flow-subtitle">SSH-free 보안 관리</div>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+          <div style="border-left:2px solid #a855f7; padding-left:12px;">
+            <div style="font-size:11px; font-weight:700; color:#c084fc; margin-bottom:3px;">SSM Session Manager</div>
+            <div style="font-size:10px; color:var(--text-dim); line-height:1.5;">AmazonSSMManagedInstanceCore Role 부여<br>외부 SSH 포트 완전 차단 (보안 강화)</div>
+          </div>
+          <div style="border-left:2px solid #6366f1; padding-left:12px;">
+            <div style="font-size:11px; font-weight:700; color:#818cf8; margin-bottom:3px;">Jenkins IAM Role</div>
+            <div style="font-size:10px; color:var(--text-dim); line-height:1.5;">EC2 인스턴스에 IAM Role 직접 부여<br>Credentials 저장 없이 ECR/ECS 접근</div>
+          </div>
+          <div style="border-left:2px solid #8b5cf6; padding-left:12px;">
+            <div style="font-size:11px; font-weight:700; color:#a78bfa; margin-bottom:3px;">ALB Listener Rules</div>
+            <div style="font-size:10px; color:var(--text-dim); line-height:1.5;">Host Header + Custom Header 이중 조건<br>기업별 완전 격리 라우팅 보장</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: Overview SVG -->
+  <div id="tab-overview" class="panel">
+    <div class="svg-section">
+      <div class="region-label" style="margin-bottom:16px;">
+        <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6" cy="6" r="2" fill="currentColor"/></svg>
+        Full System Architecture Overview
+      </div>
+      <svg class="full-arch-svg" viewBox="0 0 1100 720" xmlns="http://www.w3.org/2000/svg" style="background:#0d1424; border-radius:10px; border:1px solid #1e3a5f;">
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4ade80"/>
+          </marker>
+          <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#f59e0b"/>
+          </marker>
+          <marker id="arr-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#a78bfa"/>
+          </marker>
+          <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#60a5fa"/>
+          </marker>
+        </defs>
+
+        <!-- BG Grid -->
+        <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+          <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#1a2a45" stroke-width="0.5"/>
+        </pattern>
+        <rect width="1100" height="720" fill="url(#grid)"/>
+
+        <!-- Internet -->
+        <ellipse cx="80" cy="200" rx="55" ry="35" fill="#0a1628" stroke="#2d4a7a" stroke-width="1.5"/>
+        <text x="80" y="196" text-anchor="middle" fill="#64748b" font-size="10" font-family="monospace">Internet</text>
+        <text x="80" y="209" text-anchor="middle" fill="#4ade80" font-size="9" font-family="monospace">Users</text>
+
+        <!-- GitHub -->
+        <rect x="20" y="530" width="90" height="36" rx="6" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+        <text x="65" y="551" text-anchor="middle" fill="#e6edf3" font-size="10" font-family="monospace" font-weight="bold">GitHub</text>
+        <text x="65" y="562" text-anchor="middle" fill="#64748b" font-size="8" font-family="monospace">main branch</text>
+
+        <!-- Gabia DNS -->
+        <rect x="20" y="350" width="90" height="36" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+        <text x="65" y="370" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace" font-weight="bold">Gabia DNS</text>
+        <text x="65" y="381" text-anchor="middle" fill="#64748b" font-size="8" font-family="monospace">monittoring.co.kr</text>
+
+        <!-- Agent Company -->
+        <rect x="20" y="90" width="100" height="44" rx="6" fill="#1a1200" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,2"/>
+        <text x="70" y="109" text-anchor="middle" fill="#fbbf24" font-size="10" font-family="monospace" font-weight="bold">Corp Agent</text>
+        <text x="70" y="122" text-anchor="middle" fill="#92400e" font-size="8" font-family="monospace">data.:4318</text>
+
+        <!-- VPC Box -->
+        <rect x="150" y="50" width="850" height="630" rx="12" fill="none" stroke="#FF9900" stroke-width="1.5" stroke-dasharray="6,3"/>
+        <text x="175" y="72" fill="#FF9900" font-size="11" font-family="monospace" font-weight="bold">AWS VPC — ap-northeast-2 (Seoul)  10.0.0.0/16</text>
+
+        <!-- ALB -->
+        <rect x="220" y="160" width="110" height="60" rx="8" fill="#1a1200" stroke="#FF9900" stroke-width="2"/>
+        <text x="275" y="184" text-anchor="middle" fill="#FF9900" font-size="11" font-family="monospace" font-weight="bold">ALB</text>
+        <text x="275" y="198" text-anchor="middle" fill="#92400e" font-size="9" font-family="monospace">:80 :443 :4318</text>
+        <text x="275" y="211" text-anchor="middle" fill="#64748b" font-size="8" font-family="monospace">Host-based Routing</text>
+
+        <!-- NAT GW A -->
+        <rect x="220" y="90" width="80" height="36" rx="6" fill="#0f1f10" stroke="#10b981" stroke-width="1.5"/>
+        <text x="260" y="108" text-anchor="middle" fill="#10b981" font-size="10" font-family="monospace" font-weight="bold">NAT GW</text>
+        <text x="260" y="120" text-anchor="middle" fill="#064e3b" font-size="8" font-family="monospace">public-a</text>
+
+        <!-- NAT GW C -->
+        <rect x="330" y="90" width="80" height="36" rx="6" fill="#0f1f10" stroke="#10b981" stroke-width="1.5"/>
+        <text x="370" y="108" text-anchor="middle" fill="#10b981" font-size="10" font-family="monospace" font-weight="bold">NAT GW</text>
+        <text x="370" y="120" text-anchor="middle" fill="#064e3b" font-size="8" font-family="monospace">public-c</text>
+
+        <!-- AZ-a box -->
+        <rect x="165" y="255" width="340" height="340" rx="8" fill="rgba(56,189,248,0.03)" stroke="#38bdf8" stroke-width="1" stroke-dasharray="5,3"/>
+        <text x="185" y="275" fill="#38bdf8" font-size="9" font-family="monospace" font-weight="bold">AZ: ap-northeast-2a</text>
+
+        <!-- AZ-c box -->
+        <rect x="525" y="255" width="340" height="340" rx="8" fill="rgba(251,146,60,0.03)" stroke="#fb923c" stroke-width="1" stroke-dasharray="5,3"/>
+        <text x="545" y="275" fill="#fb923c" font-size="9" font-family="monospace" font-weight="bold">AZ: ap-northeast-2c</text>
+
+        <!-- Spring ECS AZ-a -->
+        <rect x="180" y="285" width="150" height="44" rx="6" fill="rgba(59,130,246,0.1)" stroke="#3b82f6" stroke-width="1.5"/>
+        <text x="255" y="305" text-anchor="middle" fill="#60a5fa" font-size="10" font-family="monospace" font-weight="bold">ECS Spring App</text>
+        <text x="255" y="318" text-anchor="middle" fill="#1e40af" font-size="8" font-family="monospace">private-spring-a</text>
+
+        <!-- RDS AZ-a -->
+        <rect x="180" y="345" width="150" height="44" rx="6" fill="rgba(168,85,247,0.1)" stroke="#a855f7" stroke-width="1.5"/>
+        <text x="255" y="365" text-anchor="middle" fill="#c084fc" font-size="10" font-family="monospace" font-weight="bold">RDS Master</text>
+        <text x="255" y="378" text-anchor="middle" fill="#6b21a8" font-size="8" font-family="monospace">private-database-a</text>
+
+        <!-- Jenkins AZ-a -->
+        <rect x="180" y="405" width="150" height="44" rx="6" fill="rgba(245,158,11,0.1)" stroke="#f59e0b" stroke-width="1.5"/>
+        <text x="255" y="425" text-anchor="middle" fill="#fbbf24" font-size="10" font-family="monospace" font-weight="bold">Jenkins Server</text>
+        <text x="255" y="438" text-anchor="middle" fill="#92400e" font-size="8" font-family="monospace">private-cicd-a</text>
+
+        <!-- Monitoring AZ-a -->
+        <rect x="180" y="465" width="150" height="50" rx="6" fill="rgba(239,68,68,0.08)" stroke="#ef4444" stroke-width="1.5"/>
+        <text x="255" y="484" text-anchor="middle" fill="#f87171" font-size="10" font-family="monospace" font-weight="bold">Monitoring EC2</text>
+        <text x="255" y="497" text-anchor="middle" fill="#991b1b" font-size="8" font-family="monospace">Prom+Loki+OTel+Alert</text>
+        <text x="255" y="508" text-anchor="middle" fill="#7f1d1d" font-size="7" font-family="monospace">private-monitoring-a</text>
+
+        <!-- Spring ECS AZ-c -->
+        <rect x="540" y="285" width="150" height="44" rx="6" fill="rgba(59,130,246,0.1)" stroke="#3b82f6" stroke-width="1.5"/>
+        <text x="615" y="305" text-anchor="middle" fill="#60a5fa" font-size="10" font-family="monospace" font-weight="bold">ECS Spring App</text>
+        <text x="615" y="318" text-anchor="middle" fill="#1e40af" font-size="8" font-family="monospace">private-spring-c</text>
+
+        <!-- RDS AZ-c -->
+        <rect x="540" y="345" width="150" height="44" rx="6" fill="rgba(168,85,247,0.1)" stroke="#a855f7" stroke-width="1.5"/>
+        <text x="615" y="365" text-anchor="middle" fill="#c084fc" font-size="10" font-family="monospace" font-weight="bold">RDS Multi-AZ</text>
+        <text x="615" y="378" text-anchor="middle" fill="#6b21a8" font-size="8" font-family="monospace">private-database-c</text>
+
+        <!-- Monitoring AZ-c (Per-company) -->
+        <rect x="540" y="405" width="300" height="170" rx="8" fill="rgba(239,68,68,0.05)" stroke="#ef4444" stroke-width="1.5"/>
+        <text x="690" y="425" text-anchor="middle" fill="#f87171" font-size="10" font-family="monospace" font-weight="bold">Per-Company Monitoring EC2 (t3.small)</text>
+        <text x="690" y="438" text-anchor="middle" fill="#7f1d1d" font-size="8" font-family="monospace">capstone-private-monitoring-c</text>
+
+        <!-- Docker Compose stack -->
+        <rect x="555" y="448" width="110" height="28" rx="4" fill="rgba(245,158,11,0.15)" stroke="#f59e0b" stroke-width="1"/>
+        <text x="610" y="466" text-anchor="middle" fill="#fbbf24" font-size="9" font-family="monospace">Prometheus :9090</text>
+
+        <rect x="555" y="484" width="110" height="28" rx="4" fill="rgba(251,146,60,0.15)" stroke="#fb923c" stroke-width="1"/>
+        <text x="610" y="502" text-anchor="middle" fill="#fb923c" font-size="9" font-family="monospace">Grafana Loki :3100</text>
+
+        <rect x="675" y="448" width="150" height="28" rx="4" fill="rgba(59,130,246,0.15)" stroke="#3b82f6" stroke-width="1"/>
+        <text x="750" y="466" text-anchor="middle" fill="#60a5fa" font-size="9" font-family="monospace">OTel Collector :4318</text>
+
+        <rect x="675" y="484" width="150" height="28" rx="4" fill="rgba(239,68,68,0.15)" stroke="#ef4444" stroke-width="1"/>
+        <text x="750" y="502" text-anchor="middle" fill="#f87171" font-size="9" font-family="monospace">AlertManager :9093</text>
+
+        <!-- ECR -->
+        <rect x="895" y="285" width="90" height="44" rx="6" fill="#0a1628" stroke="#3b82f6" stroke-width="1.5"/>
+        <text x="940" y="305" text-anchor="middle" fill="#60a5fa" font-size="10" font-family="monospace" font-weight="bold">ECR</text>
+        <text x="940" y="318" text-anchor="middle" fill="#1e3a5f" font-size="8" font-family="monospace">Container Registry</text>
+
+        <!-- S3 -->
+        <rect x="895" y="160" width="90" height="44" rx="6" fill="#0a1f10" stroke="#10b981" stroke-width="1.5"/>
+        <text x="940" y="180" text-anchor="middle" fill="#10b981" font-size="10" font-family="monospace" font-weight="bold">S3</text>
+        <text x="940" y="193" text-anchor="middle" fill="#064e3b" font-size="8" font-family="monospace">Agent Files</text>
+
+        <!-- CloudFront -->
+        <rect x="895" y="90" width="90" height="44" rx="6" fill="#1a1200" stroke="#FF9900" stroke-width="1.5"/>
+        <text x="940" y="110" text-anchor="middle" fill="#FF9900" font-size="10" font-family="monospace" font-weight="bold">CloudFront</text>
+        <text x="940" y="123" text-anchor="middle" fill="#92400e" font-size="8" font-family="monospace">Frontend CDN</text>
+
+        <!-- ARROWS -->
+        <!-- Internet -> ALB -->
+        <line x1="135" y1="200" x2="218" y2="200" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)" class="flow-arrow"/>
+        <text x="176" y="194" text-anchor="middle" fill="#4ade80" font-size="8" font-family="monospace">HTTPS</text>
+
+        <!-- Agent -> ALB -->
+        <line x1="120" y1="115" x2="218" y2="175" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-orange)" class="flow-arrow"/>
+        <text x="157" y="135" text-anchor="middle" fill="#f59e0b" font-size="8" font-family="monospace">:4318</text>
+
+        <!-- ALB -> Spring a -->
+        <line x1="275" y1="220" x2="255" y2="283" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+        <!-- ALB -> Spring c -->
+        <line x1="310" y1="190" x2="538" y2="300" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+        <!-- ALB -> OTel c -->
+        <line x1="330" y1="200" x2="673" y2="460" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-orange)" class="flow-arrow"/>
+
+        <!-- ALB -> Jenkins -->
+        <line x1="245" y1="220" x2="240" y2="403" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-purple)"/>
+
+        <!-- Spring a -> RDS a -->
+        <line x1="255" y1="329" x2="255" y2="343" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+        <!-- RDS a -> RDS c (replication) -->
+        <line x1="330" y1="367" x2="538" y2="367" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arr-purple)"/>
+        <text x="434" y="360" text-anchor="middle" fill="#7c3aed" font-size="8" font-family="monospace">Multi-AZ Replication</text>
+
+        <!-- Jenkins -> NAT GW -->
+        <line x1="255" y1="405" x2="260" y2="128" stroke="#a78bfa" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arr-purple)"/>
+
+        <!-- NAT -> ECR (via internet) -->
+        <path d="M 300 108 Q 940 50 940 282" stroke="#a78bfa" stroke-width="1" stroke-dasharray="4,3" fill="none" marker-end="url(#arr-purple)"/>
+        <text x="700" y="70" text-anchor="middle" fill="#7c3aed" font-size="8" font-family="monospace">Push Image / Deploy ECS</text>
+
+        <!-- ECR -> Spring ECS -->
+        <line x1="893" y1="307" x2="692" y2="307" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-blue)"/>
+        <text x="793" y="300" text-anchor="middle" fill="#1e40af" font-size="8" font-family="monospace">Pull Image</text>
+
+        <!-- Spring a -> Monitoring EC2 (proxy) -->
+        <line x1="330" y1="305" x2="538" y2="460" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr)"/>
+        <text x="430" y="375" text-anchor="middle" fill="#16a34a" font-size="8" font-family="monospace">VPC Internal</text>
+        <text x="430" y="385" text-anchor="middle" fill="#16a34a" font-size="8" font-family="monospace">Prom/Loki Query</text>
+
+        <!-- Gabia -> ALB -->
+        <line x1="110" y1="368" x2="218" y2="200" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr)"/>
+        <text x="140" y="275" fill="#475569" font-size="8" font-family="monospace">CNAME</text>
+
+        <!-- GitHub -> Jenkins -->
+        <line x1="65" y1="530" x2="190" y2="450" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-purple)" class="flow-arrow"/>
+        <text x="100" y="488" text-anchor="middle" fill="#7c3aed" font-size="8" font-family="monospace">Webhook</text>
+
+        <!-- Legend -->
+        <rect x="165" y="645" width="750" height="30" rx="4" fill="rgba(10,20,40,0.8)" stroke="#1e3a5f" stroke-width="1"/>
+        <line x1="185" y1="660" x2="205" y2="660" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="210" y="664" fill="#64748b" font-size="8" font-family="monospace">User Traffic</text>
+        <line x1="275" y1="660" x2="295" y2="660" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3"/>
+        <text x="300" y="664" fill="#64748b" font-size="8" font-family="monospace">Agent Data</text>
+        <line x1="365" y1="660" x2="385" y2="660" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <text x="390" y="664" fill="#64748b" font-size="8" font-family="monospace">CI/CD Pipeline</text>
+        <line x1="465" y1="660" x2="485" y2="660" stroke="#60a5fa" stroke-width="1.5"/>
+        <text x="490" y="664" fill="#64748b" font-size="8" font-family="monospace">Internal API</text>
+        <rect x="560" y="654" width="10" height="10" rx="2" fill="rgba(239,68,68,0.3)" stroke="#ef4444" stroke-width="1"/>
+        <text x="576" y="664" fill="#64748b" font-size="8" font-family="monospace">Per-Company Monitoring</text>
+        <rect x="700" y="654" width="10" height="10" rx="2" fill="rgba(245,158,11,0.3)" stroke="#f59e0b" stroke-width="1"/>
+        <text x="716" y="664" fill="#64748b" font-size="8" font-family="monospace">CI/CD Zone</text>
+        <rect x="770" y="654" width="10" height="10" rx="2" fill="rgba(168,85,247,0.3)" stroke="#a855f7" stroke-width="1"/>
+        <text x="786" y="664" fill="#64748b" font-size="8" font-family="monospace">Database</text>
+      </svg>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    event.target.classList.add('active');
+  }
+</script>
+</body>
+</html>

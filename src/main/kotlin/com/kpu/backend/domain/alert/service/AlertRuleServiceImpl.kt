@@ -6,7 +6,7 @@ import com.kpu.backend.domain.alert.dto.AlertRuleSettingResponse
 import com.kpu.backend.domain.alert.dto.RuleUpdateRequest
 import com.kpu.backend.domain.alert.entity.AlertRuleSetting
 import com.kpu.backend.domain.alert.repository.AlertRuleSettingRepository
-import com.kpu.backend.domain.company.CompanyRepository
+import com.kpu.backend.domain.company.repository.CompanyRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
