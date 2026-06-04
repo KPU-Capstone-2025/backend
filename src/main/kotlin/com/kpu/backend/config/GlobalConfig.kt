@@ -52,6 +52,9 @@ class GlobalConfig(private val jwtUtil: JwtUtil) {
                     "/api/dashboard/*/anomaly",
                     "/api/dashboard/*/prediction",
                     "/api/dashboard/*/alerts/daily",
+                    "/swagger-ui/**",
+                    "/swagger-ui.html",
+                    "/v3/api-docs/**",
                     "/error"
                 ).permitAll()
                 auth.anyRequest().authenticated()

@@ -1,6 +1,6 @@
 package com.kpu.backend.domain.chat
 
-import com.kpu.backend.domain.alert.AlertRepository
+import com.kpu.backend.domain.alert.repository.AlertRepository
 import com.kpu.backend.domain.company.CompanyRepository
 import com.kpu.backend.domain.monitoring.MonitoringService
 import dev.langchain4j.data.message.AiMessage

@@ -1,4 +1,4 @@
-package com.kpu.backend.domain.alert
+package com.kpu.backend.domain.alert.entity
 
 import jakarta.persistence.*
 

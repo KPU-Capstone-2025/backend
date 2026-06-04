@@ -1,7 +1,7 @@
 package com.kpu.backend.domain.monitoring
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.kpu.backend.domain.alert.AlertRepository
+import com.kpu.backend.domain.alert.repository.AlertRepository
 import com.kpu.backend.domain.company.CompanyRepository
 import org.slf4j.LoggerFactory
 import org.springframework.http.*
@@ -237,7 +237,7 @@ class MonitoringService(
         return MonthlyMetricsResponse(year, month, startDate, endDate, days)
     }
 
-    fun getAlertsByDate(companyId: Long, date: String, hostName: String? = null): List<com.kpu.backend.domain.alert.AlertLog> {
+    fun getAlertsByDate(companyId: Long, date: String, hostName: String? = null): List<com.kpu.backend.domain.alert.entity.AlertLog> {
         val company = companyRepository.findById(companyId).orElse(null) ?: return emptyList()
         val dayStart = java.time.LocalDate.parse(date).atStartOfDay()
         return if (!hostName.isNullOrBlank())
@@ -315,6 +315,39 @@ class MonitoringService(
             )
         }.filter { it.cpuUsage > 0 || it.memoryBytes > 0 }
         .sortedByDescending { it.cpuUsage }
+    }
+
+    fun getHostMetricsHistory(companyId: Long, rangeMinutes: Int, step: Int, hostName: String?): List<Map<String, Any>> {
+        val company = companyRepository.findById(companyId).orElse(null) ?: return emptyList()
+        val ip = company.ip ?: return emptyList()
+        val promUrl = prometheusUrl(ip)
+        val hf = if (!hostName.isNullOrBlank()) "{host_name=\"$hostName\"}" else ""
+
+        val end = Instant.now().epochSecond
+        val start = end - rangeMinutes * 60L
+
+        val cpuPts  = queryRange("system_cpu_usage$hf", promUrl, start, end, step)
+        val memPts  = queryRange("system_memory_usage$hf", promUrl, start, end, step)
+        val diskPts = queryRange("system_disk_usage$hf", promUrl, start, end, step)
+        val rxPts   = queryRange("sum(deriv(system_network_rx_bytes$hf[2m]))", promUrl, start, end, step)
+        val txPts   = queryRange("sum(deriv(system_network_tx_bytes$hf[2m]))", promUrl, start, end, step)
+
+        val cpuMap  = cpuPts.toMap()
+        val memMap  = memPts.toMap()
+        val diskMap = diskPts.toMap()
+        val rxMap   = rxPts.toMap()
+        val txMap   = txPts.toMap()
+
+        val allTs = (cpuMap.keys + memMap.keys + diskMap.keys).toSortedSet()
+        return allTs.map { ts ->
+            mapOf(
+                "t"       to ts * 1000L,
+                "cpu"     to (cpuMap[ts] ?: 0.0),
+                "memory"  to (memMap[ts] ?: 0.0),
+                "disk"    to (diskMap[ts] ?: 0.0),
+                "network" to ((rxMap[ts] ?: 0.0) + (txMap[ts] ?: 0.0))
+            )
+        }
     }
 
     fun queryRangePublic(query: String, prometheusUrl: String, start: Long, end: Long, step: Int) =

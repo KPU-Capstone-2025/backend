@@ -22,6 +22,14 @@ class DashboardController(
     fun host(@PathVariable companyId: Long, @RequestParam(required = false) hostName: String?) =
         ApiResponse(true, "200", "성공", result = monitoringService.getHostMetrics(companyId, hostName))
 
+    @GetMapping("/{companyId}/host/history")
+    fun hostHistory(
+        @PathVariable companyId: Long,
+        @RequestParam(defaultValue = "5") range: Int,
+        @RequestParam(defaultValue = "15") step: Int,
+        @RequestParam(required = false) hostName: String?
+    ) = ResponseEntity.ok(monitoringService.getHostMetricsHistory(companyId, range, step, hostName))
+
     @GetMapping("/{companyId}/hosts")
     fun hosts(@PathVariable companyId: Long) =
         ResponseEntity.ok(monitoringService.getDiscoveredHosts(companyId))

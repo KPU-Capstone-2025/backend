@@ -1,7 +1,7 @@
 package com.kpu.backend.domain.monitoring
 
-import com.kpu.backend.domain.alert.AlertLog
-import com.kpu.backend.domain.alert.AlertRepository
+import com.kpu.backend.domain.alert.entity.AlertLog
+import com.kpu.backend.domain.alert.repository.AlertRepository
 import com.kpu.backend.domain.company.CompanyRepository
 import com.kpu.backend.infra.AiService
 import com.kpu.backend.infra.NotificationService
