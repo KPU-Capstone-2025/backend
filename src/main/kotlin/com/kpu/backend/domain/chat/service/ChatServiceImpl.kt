@@ -5,7 +5,7 @@ import com.kpu.backend.domain.chat.dto.ChatHistoryResponse
 import com.kpu.backend.domain.chat.entity.ChatMessage
 import com.kpu.backend.domain.chat.repository.ChatMessageRepository
 import com.kpu.backend.domain.company.repository.CompanyRepository
-import com.kpu.backend.domain.monitoring.service.MonitoringServicePort
+import com.kpu.backend.domain.monitoring.service.MonitoringService
 import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
@@ -19,9 +19,9 @@ class ChatServiceImpl(
     private val alertRepository: AlertRepository,
     private val chatMessageRepository: ChatMessageRepository,
     private val companyRepository: CompanyRepository,
-    private val monitoringService: MonitoringServicePort,
+    private val monitoringService: MonitoringService,
     private val chatModel: ChatLanguageModel
-) : ChatServicePort {
+) : ChatService {
 
     @Transactional
     override fun askQuestion(monitoringId: String, userQuestion: String): String {

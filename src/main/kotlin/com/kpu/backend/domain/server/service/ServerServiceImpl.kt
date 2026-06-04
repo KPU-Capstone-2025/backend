@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional
 class ServerServiceImpl(
     private val serverRepository: ServerRepository,
     private val companyRepository: CompanyRepository
-) : ServerServicePort {
+) : ServerService {
 
     override fun getServers(companyId: Long): List<ServerResponse> {
         val company = companyRepository.findById(companyId)

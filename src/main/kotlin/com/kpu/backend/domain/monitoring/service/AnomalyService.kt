@@ -11,7 +11,7 @@ import kotlin.math.sqrt
 @Service
 class AnomalyService(
     private val companyRepository: CompanyRepository,
-    private val monitoringService: MonitoringServicePort
+    private val prometheusQueryService: PrometheusQueryService
 ) {
     fun detect(companyId: Long, hostName: String?): AnomalyResult {
         val company = companyRepository.findById(companyId).orElseThrow()
@@ -27,9 +27,9 @@ class AnomalyService(
 
         val anomalies = metrics.map { (metricName, threshold) ->
             val query   = if (hostName != null) "$metricName{host_name=\"$hostName\"}" else metricName
-            val pts     = monitoringService.queryRangePublic(query, prometheusUrl, oneHourAgo, now, 60)
+            val pts     = prometheusQueryService.queryRange(query, prometheusUrl, oneHourAgo, now, 60)
             val values  = pts.map { it.second }
-            val current = monitoringService.querySingleValuePublic(query, prometheusUrl) ?: 0.0
+            val current = prometheusQueryService.querySingleValue(query, prometheusUrl) ?: 0.0
 
             if (values.size < 5) {
                 MetricAnomaly(metricName, current, 0.0, 0.0, false, "normal")

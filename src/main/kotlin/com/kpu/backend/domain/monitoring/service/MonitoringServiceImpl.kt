@@ -22,7 +22,7 @@ class MonitoringServiceImpl(
     private val companyRepository: CompanyRepository,
     private val alertRepository: AlertRepository,
     private val restTemplate: RestTemplate
-) : MonitoringServicePort {
+) : MonitoringService, PrometheusQueryService {
 
     private val log = LoggerFactory.getLogger(MonitoringServiceImpl::class.java)
     private val mapper = ObjectMapper()
@@ -55,14 +55,14 @@ class MonitoringServiceImpl(
 
         fun q(metric: String) = if (hostName != null) "$metric{host_name=\"$hostName\"}" else metric
         val hf = if (hostName != null) "{host_name=\"$hostName\"}" else ""
-        val rx = querySingleValue("sum(deriv(system_network_rx_bytes$hf[2m]))", promUrl) ?: 0.0
-        val tx = querySingleValue("sum(deriv(system_network_tx_bytes$hf[2m]))", promUrl) ?: 0.0
+        val rx = doQuerySingleValue("sum(deriv(system_network_rx_bytes$hf[2m]))", promUrl) ?: 0.0
+        val tx = doQuerySingleValue("sum(deriv(system_network_tx_bytes$hf[2m]))", promUrl) ?: 0.0
 
         return ResourceMetrics(
             status = "STABLE",
-            cpuUsage = querySingleValue(q("system_cpu_usage"), promUrl) ?: 0.0,
-            memoryUsage = querySingleValue(q("system_memory_usage"), promUrl) ?: 0.0,
-            diskUsage = querySingleValue(q("system_disk_usage"), promUrl) ?: 0.0,
+            cpuUsage = doQuerySingleValue(q("system_cpu_usage"), promUrl) ?: 0.0,
+            memoryUsage = doQuerySingleValue(q("system_memory_usage"), promUrl) ?: 0.0,
+            diskUsage = doQuerySingleValue(q("system_disk_usage"), promUrl) ?: 0.0,
             networkTraffic = rx + tx
         )
     }
@@ -76,11 +76,11 @@ class MonitoringServiceImpl(
         val end   = Instant.now().epochSecond
         val start = end - rangeMinutes * 60L
 
-        val cpuPts  = queryRange("system_cpu_usage$hf", promUrl, start, end, step)
-        val memPts  = queryRange("system_memory_usage$hf", promUrl, start, end, step)
-        val diskPts = queryRange("system_disk_usage$hf", promUrl, start, end, step)
-        val rxPts   = queryRange("sum(deriv(system_network_rx_bytes$hf[2m]))", promUrl, start, end, step)
-        val txPts   = queryRange("sum(deriv(system_network_tx_bytes$hf[2m]))", promUrl, start, end, step)
+        val cpuPts  = doQueryRange("system_cpu_usage$hf", promUrl, start, end, step)
+        val memPts  = doQueryRange("system_memory_usage$hf", promUrl, start, end, step)
+        val diskPts = doQueryRange("system_disk_usage$hf", promUrl, start, end, step)
+        val rxPts   = doQueryRange("sum(deriv(system_network_rx_bytes$hf[2m]))", promUrl, start, end, step)
+        val txPts   = doQueryRange("sum(deriv(system_network_tx_bytes$hf[2m]))", promUrl, start, end, step)
 
         val cpuMap  = cpuPts.toMap()
         val memMap  = memPts.toMap()
@@ -119,15 +119,15 @@ class MonitoringServiceImpl(
             ?: return ResourceMetrics(status = "NOT_FOUND", cpuUsage = 0.0, memoryUsage = 0.0, diskUsage = 0.0, networkTraffic = 0.0)
         val promUrl = prometheusUrl(ip)
 
-        val memBytes  = querySingleValue("container_memory_usage_bytes{container_name=\"$containerName\"}", promUrl) ?: 0.0
-        val totalBytes = querySingleValue("system_memory_total_bytes", promUrl) ?: 0.0
+        val memBytes  = doQuerySingleValue("container_memory_usage_bytes{container_name=\"$containerName\"}", promUrl) ?: 0.0
+        val totalBytes = doQuerySingleValue("system_memory_total_bytes", promUrl) ?: 0.0
         val memPct    = if (totalBytes > 0) (memBytes / totalBytes) * 100.0 else 0.0
-        val netRx     = querySingleValue("rate(container_network_rx_bytes{container_name=\"$containerName\"}[1m])", promUrl) ?: 0.0
-        val netTx     = querySingleValue("rate(container_network_tx_bytes{container_name=\"$containerName\"}[1m])", promUrl) ?: 0.0
+        val netRx     = doQuerySingleValue("rate(container_network_rx_bytes{container_name=\"$containerName\"}[1m])", promUrl) ?: 0.0
+        val netTx     = doQuerySingleValue("rate(container_network_tx_bytes{container_name=\"$containerName\"}[1m])", promUrl) ?: 0.0
 
         return ResourceMetrics(
             status = "RUNNING",
-            cpuUsage = querySingleValue("rate(container_cpu_usage_ns{container_name=\"$containerName\"}[1m]) / 1e9 * 100", promUrl) ?: 0.0,
+            cpuUsage = doQuerySingleValue("rate(container_cpu_usage_ns{container_name=\"$containerName\"}[1m]) / 1e9 * 100", promUrl) ?: 0.0,
             memoryUsage = memPct,
             diskUsage = 0.0,
             networkTraffic = netRx + netTx
@@ -210,20 +210,20 @@ class MonitoringServiceImpl(
         val epochEnd   = rangeEnd.plusDays(1).atStartOfDay().toEpochSecond(ZoneOffset.UTC)
         val step = 3600
 
-        val hostCpuPts  = queryRange(hq("system_cpu_usage"),    promUrl, epochStart, epochEnd, step)
-        val hostMemPts  = queryRange(hq("system_memory_usage"), promUrl, epochStart, epochEnd, step)
-        val hostDiskPts = queryRange(hq("system_disk_usage"),   promUrl, epochStart, epochEnd, step)
-        val hostRxPts   = queryRange("sum(deriv(system_network_rx_bytes$hhf[2h]))", promUrl, epochStart, epochEnd, step)
-        val hostTxPts   = queryRange("sum(deriv(system_network_tx_bytes$hhf[2h]))", promUrl, epochStart, epochEnd, step)
-        val totalMemBytes = querySingleValue(hq("system_memory_total_bytes"), promUrl) ?: 0.0
+        val hostCpuPts  = doQueryRange(hq("system_cpu_usage"),    promUrl, epochStart, epochEnd, step)
+        val hostMemPts  = doQueryRange(hq("system_memory_usage"), promUrl, epochStart, epochEnd, step)
+        val hostDiskPts = doQueryRange(hq("system_disk_usage"),   promUrl, epochStart, epochEnd, step)
+        val hostRxPts   = doQueryRange("sum(deriv(system_network_rx_bytes$hhf[2h]))", promUrl, epochStart, epochEnd, step)
+        val hostTxPts   = doQueryRange("sum(deriv(system_network_tx_bytes$hhf[2h]))", promUrl, epochStart, epochEnd, step)
+        val totalMemBytes = doQuerySingleValue(hq("system_memory_total_bytes"), promUrl) ?: 0.0
 
         val containers = getContainerList(companyId, hostName)
         val containerSeries = containers.associate { c ->
             val id = c.containerId
             Triple(
-                queryRange("rate(container_cpu_usage_ns{container_name=\"$id\"}[1h]) / 1e9 * 100", promUrl, epochStart, epochEnd, step),
-                queryRange("container_memory_usage_bytes{container_name=\"$id\"}", promUrl, epochStart, epochEnd, step),
-                queryRange("rate(container_network_rx_bytes{container_name=\"$id\"}[1h])", promUrl, epochStart, epochEnd, step)
+                doQueryRange("rate(container_cpu_usage_ns{container_name=\"$id\"}[1h]) / 1e9 * 100", promUrl, epochStart, epochEnd, step),
+                doQueryRange("container_memory_usage_bytes{container_name=\"$id\"}", promUrl, epochStart, epochEnd, step),
+                doQueryRange("rate(container_network_rx_bytes{container_name=\"$id\"}[1h])", promUrl, epochStart, epochEnd, step)
             ).let { id to it }
         }
 
@@ -346,11 +346,12 @@ class MonitoringServiceImpl(
         }.filter { it.cpuUsage > 0 || it.memoryBytes > 0 }.sortedByDescending { it.cpuUsage }
     }
 
-    override fun queryRangePublic(query: String, prometheusUrl: String, start: Long, end: Long, step: Int) =
-        queryRange(query, prometheusUrl, start, end, step)
+    // PrometheusQueryService 구현
+    override fun queryRange(query: String, prometheusUrl: String, start: Long, end: Long, step: Int) =
+        doQueryRange(query, prometheusUrl, start, end, step)
 
-    override fun querySingleValuePublic(query: String, prometheusUrl: String) =
-        querySingleValue(query, prometheusUrl)
+    override fun querySingleValue(query: String, prometheusUrl: String) =
+        doQuerySingleValue(query, prometheusUrl)
 
     private fun encodeQuery(query: String): String =
         java.net.URLEncoder.encode(query, java.nio.charset.StandardCharsets.UTF_8)
@@ -364,11 +365,11 @@ class MonitoringServiceImpl(
         } catch (e: Exception) { emptyList() }
     }
 
-    private fun querySingleValue(query: String, prometheusUrl: String): Double? =
+    private fun doQuerySingleValue(query: String, prometheusUrl: String): Double? =
         (queryPrometheus(query, prometheusUrl).firstOrNull()?.get("value") as? List<*>)
             ?.get(1)?.toString()?.toDoubleOrNull()
 
-    private fun queryRange(query: String, prometheusUrl: String, start: Long, end: Long, step: Int): List<Pair<Long, Double>> {
+    private fun doQueryRange(query: String, prometheusUrl: String, start: Long, end: Long, step: Int): List<Pair<Long, Double>> {
         val uri = UriComponentsBuilder.fromUriString("$prometheusUrl/api/v1/query_range")
             .queryParam("query", encodeQuery(query))
             .queryParam("start", start).queryParam("end", end).queryParam("step", step)

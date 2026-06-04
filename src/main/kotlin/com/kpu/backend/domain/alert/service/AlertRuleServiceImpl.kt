@@ -23,7 +23,7 @@ class AlertRuleServiceImpl(
     private val companyRepository: CompanyRepository,
     private val alertRuleSettingRepository: AlertRuleSettingRepository,
     @Value("\${spring.profiles.active:default}") private val activeProfile: String
-) : AlertRuleServicePort {
+) : AlertRuleService {
 
     private val log = LoggerFactory.getLogger(AlertRuleServiceImpl::class.java)
 

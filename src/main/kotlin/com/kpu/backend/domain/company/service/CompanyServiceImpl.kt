@@ -37,7 +37,7 @@ class CompanyServiceImpl(
     @Value("\${aws.alb.listener.arn:}") private val listenerArn: String,
     @Value("\${monitoring.alert-webhook-url:\${monitoring.backend-url}}") private val backendUrl: String,
     @Value("\${spring.profiles.active:default}") private val activeProfile: String
-) : CompanyServicePort {
+) : CompanyService {
 
     private val log = LoggerFactory.getLogger(CompanyServiceImpl::class.java)
 

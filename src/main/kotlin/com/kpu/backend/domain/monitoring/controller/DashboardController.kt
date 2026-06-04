@@ -3,7 +3,7 @@ package com.kpu.backend.domain.monitoring.controller
 import com.kpu.backend.config.ApiResponse
 import com.kpu.backend.domain.monitoring.dto.*
 import com.kpu.backend.domain.monitoring.service.AnomalyService
-import com.kpu.backend.domain.monitoring.service.MonitoringServicePort
+import com.kpu.backend.domain.monitoring.service.MonitoringService
 import com.kpu.backend.domain.monitoring.service.PredictionService
 import com.kpu.backend.infra.AiService
 import org.springframework.http.ResponseEntity
@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*
 @RestController
 @RequestMapping("/api/dashboard")
 class DashboardController(
-    private val monitoringService: MonitoringServicePort,
+    private val monitoringService: MonitoringService,
     private val anomalyService: AnomalyService,
     private val predictionService: PredictionService,
     private val aiService: AiService

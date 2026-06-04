@@ -9,7 +9,7 @@ import java.time.Instant
 @Service
 class PredictionService(
     private val companyRepository: CompanyRepository,
-    private val monitoringService: MonitoringServicePort
+    private val prometheusQueryService: PrometheusQueryService
 ) {
     fun predict(companyId: Long, hostName: String?): PredictionResult {
         val company = companyRepository.findById(companyId).orElseThrow()
@@ -25,8 +25,8 @@ class PredictionService(
 
         val predictions = targets.map { (metricName, threshold, step) ->
             val query   = if (hostName != null) "$metricName{host_name=\"$hostName\"}" else metricName
-            val pts     = monitoringService.queryRangePublic(query, prometheusUrl, sixHoursAgo, now, step)
-            val current = monitoringService.querySingleValuePublic(query, prometheusUrl) ?: 0.0
+            val pts     = prometheusQueryService.queryRange(query, prometheusUrl, sixHoursAgo, now, step)
+            val current = prometheusQueryService.querySingleValue(query, prometheusUrl) ?: 0.0
 
             if (pts.size < 3) {
                 MetricPrediction(metricName, threshold, current.round2(), "stable", null, null)
