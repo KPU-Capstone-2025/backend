@@ -1,4 +1,4 @@
-package com.kpu.backend.domain.monitoring.controller
+package com.kpu.backend.domain.alert.controller
 
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
@@ -8,7 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag
 import org.springframework.http.ResponseEntity
 
 @Tag(name = "Alert Webhook", description = "Prometheus AlertManager 웹훅 수신 API")
-interface MonitoringWebhookControllerDocs {
+interface AlertWebhookControllerDocs {
 
     @Operation(
         summary = "AlertManager 웹훅 수신",

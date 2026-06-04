@@ -1,4 +1,4 @@
-package com.kpu.backend.domain.monitoring.controller
+package com.kpu.backend.domain.alert.controller
 
 import com.kpu.backend.domain.alert.entity.AlertLog
 import com.kpu.backend.domain.alert.repository.AlertRepository
@@ -11,14 +11,14 @@ import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/alerts")
-class MonitoringWebhookController(
+class AlertWebhookController(
     private val aiService: AiService,
     private val notificationService: NotificationService,
     private val companyRepository: CompanyRepository,
     private val alertRepository: AlertRepository
-) : MonitoringWebhookControllerDocs {
+) : AlertWebhookControllerDocs {
 
-    private val log = LoggerFactory.getLogger(MonitoringWebhookController::class.java)
+    private val log = LoggerFactory.getLogger(AlertWebhookController::class.java)
 
     @PostMapping(value = ["/webhook", "/webhook/{pathId}"])
     override fun receiveAlert(
