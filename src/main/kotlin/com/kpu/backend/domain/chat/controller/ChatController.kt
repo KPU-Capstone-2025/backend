@@ -3,13 +3,13 @@ package com.kpu.backend.domain.chat.controller
 import com.kpu.backend.domain.chat.dto.ChatHistoryResponse
 import com.kpu.backend.domain.chat.dto.ChatRequest
 import com.kpu.backend.domain.chat.dto.ChatResponse
-import com.kpu.backend.domain.chat.service.ChatServicePort
+import com.kpu.backend.domain.chat.service.ChatService
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/chat")
-class ChatController(private val chatService: ChatServicePort) : ChatControllerDocs {
+class ChatController(private val chatService: ChatService) : ChatControllerDocs {
 
     @PostMapping("/ask")
     override fun chat(@RequestBody req: ChatRequest): ResponseEntity<ChatResponse> =

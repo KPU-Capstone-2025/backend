@@ -3,14 +3,14 @@ package com.kpu.backend.domain.server.controller
 import com.kpu.backend.config.ApiResponse
 import com.kpu.backend.domain.server.dto.ServerRegisterRequest
 import com.kpu.backend.domain.server.dto.ServerResponse
-import com.kpu.backend.domain.server.service.ServerServicePort
+import com.kpu.backend.domain.server.service.ServerService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/servers")
-class ServerController(private val serverService: ServerServicePort) : ServerControllerDocs {
+class ServerController(private val serverService: ServerService) : ServerControllerDocs {
 
     @GetMapping("/{companyId}")
     override fun list(@PathVariable companyId: Long): ResponseEntity<ApiResponse<List<ServerResponse>>> {

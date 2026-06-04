@@ -5,14 +5,14 @@ import com.kpu.backend.domain.company.dto.AgentDestination
 import com.kpu.backend.domain.company.dto.CompanyRegisterRequest
 import com.kpu.backend.domain.company.dto.LoginRequest
 import com.kpu.backend.domain.company.dto.LoginResponse
-import com.kpu.backend.domain.company.service.CompanyServicePort
+import com.kpu.backend.domain.company.service.CompanyService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/company")
-class CompanyController(private val companyService: CompanyServicePort) : CompanyControllerDocs {
+class CompanyController(private val companyService: CompanyService) : CompanyControllerDocs {
 
     @PostMapping("/login")
     override fun login(@RequestBody req: LoginRequest): ResponseEntity<ApiResponse<LoginResponse>> {

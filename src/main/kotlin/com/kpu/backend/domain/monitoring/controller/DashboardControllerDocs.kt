@@ -37,7 +37,7 @@ interface DashboardControllerDocs {
     fun containerMetrics(companyId: Long, containerName: String): ApiResponse<ResourceMetrics>
 
     @Operation(summary = "로그 조회", description = "Loki에서 severity·keyword 필터링된 로그를 반환합니다.")
-    fun logs(companyId: Long, severity: String?, keyword: String?, limit: Int, hostName: String?): ApiResponse<LogEntry>
+    fun logs(companyId: Long, severity: String?, keyword: String?, limit: Int, hostName: String?): ApiResponse<List<LogEntry>>
 
     @Operation(summary = "월별 메트릭 캘린더 조회", description = "월 단위 또는 날짜 범위로 일별 메트릭 통계를 반환합니다.")
     @ApiResponses(
