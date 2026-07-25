@@ -96,7 +96,7 @@ class CompanyServiceImpl(
     override fun getAgentInfo(companyId: Long): AgentDestination {
         val company = companyRepository.findById(companyId)
             .orElseThrow { BusinessException(ErrorCode.COMPANY_NOT_FOUND, "회사 정보를 찾을 수 없습니다: $companyId") }
-        return AgentDestination(company.monitoringId, "${company.collectorUrl}:80")
+        return AgentDestination(company.monitoringId, "${company.collectorUrl}:4318")
     }
 
     @Transactional
