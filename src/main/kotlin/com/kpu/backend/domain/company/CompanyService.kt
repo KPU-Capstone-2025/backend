@@ -32,7 +32,6 @@ class CompanyService(
 ) {
     private val log = LoggerFactory.getLogger(CompanyService::class.java)
 
-    @Transactional
     fun registerAndProvision(req: CompanyRegisterRequest): Company {
         val monitoringId = "mon-" + UUID.randomUUID().toString().take(8)
 
